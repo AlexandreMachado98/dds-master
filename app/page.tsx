@@ -4,8 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   ShieldAlert, Building2, Users, Video, BarChart3, 
   Lock, Unlock, RefreshCw, PlusCircle, 
-  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink
+  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface MetricData {
   totalCompanies: number;
@@ -39,6 +40,7 @@ interface PendingUser {
 }
 
 export default function MasterDashboard() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'ANALYTICS' | 'COMPANIES' | 'APPROVALS'>('ANALYTICS');
   const [loading, setLoading] = useState(true);
 
@@ -59,7 +61,15 @@ export default function MasterDashboard() {
   const [newCompanyKey, setNewCompanyKey] = useState('');
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
 
-  // Busca e atualização dos dados
+  // 1. GUARDA DE SEGURANÇA: Só permite acesso com sessão mestre
+  useEffect(() => {
+    const session = localStorage.getItem('dds_master_session');
+    if (!session) {
+      router.push('/login');
+    }
+  }, [router]);
+
+  // 2. Busca e atualização dos dados em tempo real
   useEffect(() => {
     let isMounted = true;
 
@@ -108,10 +118,15 @@ export default function MasterDashboard() {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('dds_master_session');
+    router.push('/login');
+  };
+
   const handleToggleCompanyStatus = async (companyId: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     const confirmMsg = nextStatus === 'SUSPENDED' 
-      ? 'Deseja SUSPENDER esta empresa? O acesso de todos os técnicos e reuniões dela será pausado imediatamente.' 
+      ? 'Deseja SUSPENDER esta empresa? Todos os técnicos dela serão bloqueados imediatamente.' 
       : 'Deseja REATIVAR o acesso desta empresa?';
 
     if (confirm(confirmMsg)) {
@@ -180,7 +195,7 @@ export default function MasterDashboard() {
     <main className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col justify-between">
       <div className="max-w-7xl w-full mx-auto space-y-8">
         
-        {/* Topo do Backoffice AM TST */}
+        {/* Topo do Backoffice com Botão de Logout */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-6 rounded-3xl backdrop-blur-md shadow-2xl">
           <div className="flex items-center gap-3.5">
             <div className="p-3.5 bg-green-500/10 text-green-400 rounded-2xl border border-green-500/20">
@@ -195,16 +210,25 @@ export default function MasterDashboard() {
                   Super Admin
                 </span>
               </div>
-              <p className="text-slate-400 text-xs mt-0.5">Centro de Controle Multi-Tenant, BI de Segurança e Gestão de Licenças</p>
+              <p className="text-slate-400 text-xs mt-0.5">Sessão Mestre: Alexandre Machado (Proprietário)</p>
             </div>
           </div>
 
-          <button
-            onClick={handleManualRefresh}
-            className="self-end sm:self-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-slate-700"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar Dados
-          </button>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <button
+              onClick={handleManualRefresh}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-slate-700"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-red-500/30"
+            >
+              <LogOut size={14} /> Sair
+            </button>
+          </div>
         </header>
 
         {/* Cards de Métricas Globais */}
@@ -238,7 +262,7 @@ export default function MasterDashboard() {
           </div>
         </div>
 
-        {/* Abas do Sistema Master */}
+        {/* Abas */}
         <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-2xl max-w-xl">
           <button
             onClick={() => setActiveTab('ANALYTICS')}
@@ -268,20 +292,16 @@ export default function MasterDashboard() {
           </button>
         </div>
 
-        {/* ========================================================================= */}
         {/* ABA 1: BI & ANALYTICS */}
-        {/* ========================================================================= */}
         {activeTab === 'ANALYTICS' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
-            {/* Ranking dos Temas Mais Debatidos */}
             <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Flame size={18} className="text-amber-500" /> Temas Mais Debatidos no Campo
                   </h3>
-                  <p className="text-xs text-slate-400">Assuntos mais frequentes nos diálogos de segurança</p>
+                  <p className="text-xs text-slate-400">Assuntos mais frequentes nos treinamentos</p>
                 </div>
                 <span className="text-[10px] bg-slate-800 text-green-400 font-bold px-2.5 py-1 rounded-md border border-slate-700">
                   Top Assuntos
@@ -309,14 +329,13 @@ export default function MasterDashboard() {
               )}
             </div>
 
-            {/* Ranking das Empresas Mais Ativas */}
             <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <TrendingUp size={18} className="text-green-400" /> Empresas com Maior Engajamento
                   </h3>
-                  <p className="text-xs text-slate-400">Clientes que mais realizam treinamentos e coletam presenças</p>
+                  <p className="text-xs text-slate-400">Clientes que mais realizam treinamentos</p>
                 </div>
                 <span className="text-[10px] bg-slate-800 text-green-400 font-bold px-2.5 py-1 rounded-md border border-slate-700">
                   Ranking Geral
@@ -347,17 +366,12 @@ export default function MasterDashboard() {
                 </div>
               )}
             </div>
-
           </div>
         )}
 
-        {/* ========================================================================= */}
         {/* ABA 2: GESTÃO DE EMPRESAS */}
-        {/* ========================================================================= */}
         {activeTab === 'COMPANIES' && (
           <div className="space-y-6">
-            
-            {/* Formulário de Cadastro de Nova Empresa */}
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 shadow-xl">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <PlusCircle size={18} className="text-green-500" /> Cadastrar Nova Empresa / Fazenda Cliente
@@ -398,7 +412,6 @@ export default function MasterDashboard() {
               </form>
             </div>
 
-            {/* Tabela de Empresas com Bloqueio */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
               <h3 className="text-base font-bold text-white">Empresas Cadastradas</h3>
 
@@ -458,13 +471,10 @@ export default function MasterDashboard() {
                 </table>
               </div>
             </div>
-
           </div>
         )}
 
-        {/* ========================================================================= */}
         {/* ABA 3: FILA DE APROVAÇÃO */}
-        {/* ========================================================================= */}
         {activeTab === 'APPROVALS' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
             <div>
@@ -512,13 +522,13 @@ export default function MasterDashboard() {
 
       </div>
 
-      {/* Rodapé Oficial com Link AM TST */}
+      {/* Rodapé Oficial */}
       <footer className="mt-12 pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
         <p className="text-[11px] text-slate-500">
           © {new Date().getFullYear()} <strong>DDS ON MASTER</strong> • Todos os direitos reservados.
         </p>
         <div className="flex items-center justify-center gap-1 text-[11px] text-slate-500">
-          <span>Desenvolvido e Auditado por</span>
+          <span>Desenvolvido e Gerenciado por</span>
           <a
             href="https://amtst.vercel.app"
             target="_blank"
