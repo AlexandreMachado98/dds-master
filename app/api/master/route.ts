@@ -4,7 +4,9 @@ import { PrismaClient } from '@prisma/client';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const prisma = new PrismaClient();
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+const prisma = globalForPrisma.prisma || new PrismaClient();
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 // 1. GET: Retorna Métricas de BI, Rankings e Usuários Pendentes
 export async function GET() {
@@ -85,10 +87,10 @@ export async function GET() {
   }
 }
 
-// 2. POST: Cadastra nova empresa
+// 2. POST: Cadastro de Empresa
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { name, document, secretKey } = body;
 
     if (!name || !secretKey) {
@@ -118,10 +120,10 @@ export async function POST(req: Request) {
   }
 }
 
-// 3. PATCH: Ações de Bloqueio e Aprovação
+// 3. PATCH: Ações de Bloqueio, Alteração de Chave e Moderação
 export async function PATCH(req: Request) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { action, companyId, userId, newStatus, newSecretKey } = body;
 
     if (action === 'update_company_status') {
@@ -148,7 +150,10 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, user: updated });
     }
 
-    return NextResponse.json({ success: false, error: 'Ação inválida' }, { status: 400 });
+    return NextResponse.json(
+      { success: false, error: 'Ação inválida' },
+      { status: 400 }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro ao processar';
     return NextResponse.json(

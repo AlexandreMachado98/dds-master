@@ -61,7 +61,7 @@ export default function MasterDashboard() {
   const [newCompanyKey, setNewCompanyKey] = useState('');
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
 
-  // 1. GUARDA DE SEGURANÇA: Só permite acesso com sessão mestre
+  // 1. Guarda de Segurança: Apenas com sessão mestre
   useEffect(() => {
     const session = localStorage.getItem('dds_master_session');
     if (!session) {
@@ -69,7 +69,7 @@ export default function MasterDashboard() {
     }
   }, [router]);
 
-  // 2. Busca e atualização dos dados em tempo real
+  // 2. Busca e atualização em tempo real
   useEffect(() => {
     let isMounted = true;
 
@@ -195,7 +195,7 @@ export default function MasterDashboard() {
     <main className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col justify-between">
       <div className="max-w-7xl w-full mx-auto space-y-8">
         
-        {/* Topo do Backoffice com Botão de Logout */}
+        {/* Topo do Backoffice */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-6 rounded-3xl backdrop-blur-md shadow-2xl">
           <div className="flex items-center gap-3.5">
             <div className="p-3.5 bg-green-500/10 text-green-400 rounded-2xl border border-green-500/20">
@@ -369,7 +369,7 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ABA 2: GESTÃO DE EMPRESAS */}
+        {/* ABA 2: EMPRESAS */}
         {activeTab === 'COMPANIES' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 shadow-xl">
@@ -474,7 +474,7 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ABA 3: FILA DE APROVAÇÃO */}
+        {/* ABA 3: APROVAÇÕES */}
         {activeTab === 'APPROVALS' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
             <div>
@@ -522,7 +522,6 @@ export default function MasterDashboard() {
 
       </div>
 
-      {/* Rodapé Oficial */}
       <footer className="mt-12 pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
         <p className="text-[11px] text-slate-500">
           © {new Date().getFullYear()} <strong>DDS ON MASTER</strong> • Todos os direitos reservados.
