@@ -425,7 +425,7 @@ export default function MasterDashboard() {
         )}
 
         {/* ========================================================================= */}
-        {/* ABA 2: EMPRESAS (CADASTRO E KILL-SWITCH) */}
+        {/* ABA 2: EMPRESAS (CADASTRO, CLIQUE NO NOME E KILL-SWITCH) */}
         {/* ========================================================================= */}
         {activeTab === 'COMPANIES' && (
           <div className="space-y-6">
@@ -499,9 +499,19 @@ export default function MasterDashboard() {
                         const isSuspended = comp.status === 'SUSPENDED';
                         return (
                           <tr key={comp.id} className="hover:bg-slate-800/30 transition-colors">
+                            {/* CLIQUE NO NOME DA EMPRESA ATIVADO */}
                             <td className="py-4">
-                              <p className="font-bold text-white text-sm">{comp.name}</p>
-                              <p className="text-[11px] text-slate-500">{comp.document || 'Sem Documento'}</p>
+                              <button
+                                onClick={() => router.push(`/companies/${comp.id}`)}
+                                className="text-left group cursor-pointer"
+                                title="Ver detalhes da empresa e técnicos"
+                              >
+                                <p className="font-bold text-white text-sm group-hover:text-green-400 group-hover:underline transition-colors flex items-center gap-1.5">
+                                  {comp.name} 
+                                  <ExternalLink size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-green-400" />
+                                </p>
+                                <p className="text-[11px] text-slate-500">{comp.document || 'Sem Documento'}</p>
+                              </button>
                             </td>
                             <td className="py-4">
                               <span className="font-mono bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800 text-green-400 font-bold">
@@ -604,6 +614,7 @@ export default function MasterDashboard() {
 
       </div>
 
+      {/* FOOTER AM TST */}
       <footer className="mt-12 pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
         <p className="text-[11px] text-slate-500 font-normal">
           © {new Date().getFullYear()} <strong>DDS ON MASTER</strong> • Todos os direitos reservados.
