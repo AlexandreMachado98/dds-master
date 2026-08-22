@@ -1,14 +1,14 @@
-import { NextResponse, NextRequest } from 'next/server';
+ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { email, password, masterKey } = body;
 
-    // Credenciais Mestras (Pode ser configurado no .env ou usar o padrão seguro)
+    // Credenciais Mestras (Podem ser configuradas no .env na Vercel)
     const MASTER_EMAIL = process.env.MASTER_EMAIL || 'alexandre@amtst.com.br';
     const MASTER_PASSWORD = process.env.MASTER_PASSWORD || 'AMTST#Master2026';
     const MASTER_SECURITY_KEY = process.env.MASTER_KEY || 'AM2026';
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const cleanPassword = String(password || '').trim();
     const cleanKey = String(masterKey || '').trim().toUpperCase();
 
-    // Validação de Acesso Mestre
+    // Validação Segura
     const isEmailValid = cleanEmail === MASTER_EMAIL.toLowerCase();
     const isPassValid = cleanPassword === MASTER_PASSWORD;
     const isKeyValid = !cleanKey || cleanKey === MASTER_SECURITY_KEY;
@@ -40,8 +40,9 @@ export async function POST(req: NextRequest) {
       { status: 401 }
     );
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Erro no servidor de autenticação.';
     return NextResponse.json(
-      { success: false, error: 'Erro no servidor de autenticação.' },
+      { success: false, error: message },
       { status: 500 }
     );
   }

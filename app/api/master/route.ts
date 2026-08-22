@@ -28,6 +28,7 @@ export async function GET() {
 
     const pendingUsers = await prisma.user.findMany({
       where: { status: 'PENDING_APPROVAL' },
+      include: { companyRel: true },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -36,7 +37,7 @@ export async function GET() {
       0
     );
 
-    // Contagem dos temas mais falados
+    // BI: Contagem de temas mais falados
     const topicMap: Record<string, number> = {};
     allMeetings.forEach((m) => {
       const t = String(m.topic || '').trim();
@@ -87,7 +88,7 @@ export async function GET() {
   }
 }
 
-// 2. POST: Cadastro de Empresa
+// 2. POST: Cadastra nova empresa
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -120,7 +121,7 @@ export async function POST(req: Request) {
   }
 }
 
-// 3. PATCH: Ações de Bloqueio, Alteração de Chave e Moderação
+// 3. PATCH: Ações de Bloqueio, Alteração de Chave e Aprovação
 export async function PATCH(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -150,10 +151,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, user: updated });
     }
 
-    return NextResponse.json(
-      { success: false, error: 'Ação inválida' },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, error: 'Ação inválida' }, { status: 400 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Erro ao processar';
     return NextResponse.json(
