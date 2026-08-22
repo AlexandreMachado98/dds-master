@@ -1,14 +1,12 @@
-import React from 'react';
+ import React from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { 
   Building2, Users, Video, ArrowLeft, KeyRound, 
-  Calendar, CheckCircle2, Clock, MapPin, 
-  ShieldCheck, AlertTriangle, ExternalLink, Activity
+  MapPin, ShieldCheck, ExternalLink, Activity
 } from 'lucide-react';
 import { PrismaClient } from '@prisma/client';
 
-// Reutiliza ou instancia o Prisma Client
 const prisma = new PrismaClient();
 
 interface PageProps {
@@ -16,7 +14,6 @@ interface PageProps {
 }
 
 export default async function CompanyDetailPage({ params }: PageProps) {
-  // Resolve params (compatível com Next.js 14 e 15)
   const resolvedParams = await Promise.resolve(params);
   const companyId = resolvedParams.id;
 
@@ -24,7 +21,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  // Busca a empresa com todos os seus técnicos e DDSs
+  // 1. Busca os dados da empresa e seus técnicos
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     include: {
@@ -32,17 +29,6 @@ export default async function CompanyDetailPage({ params }: PageProps) {
         include: {
           _count: {
             select: { meetings: true }
-          }
-        },
-        orderBy: { createdAt: 'desc' }
-      },
-      meetings: {
-        include: {
-          organizer: {
-            select: { name: true, email: true }
-          },
-          _count: {
-            select: { attendees: true }
           }
         },
         orderBy: { createdAt: 'desc' }
@@ -54,12 +40,31 @@ export default async function CompanyDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  // Cálculos de métricas da empresa
+  // 2. Busca TODOS os DDSs (diretos da empresa OU feitos pelos técnicos vinculados a ela)
+  const meetings = await prisma.meeting.findMany({
+    where: {
+      OR: [
+        { companyId: companyId },
+        { organizer: { companyId: companyId } }
+      ]
+    },
+    include: {
+      organizer: {
+        select: { name: true, email: true }
+      },
+      _count: {
+        select: { attendees: true }
+      }
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  // Métricas calculadas em tempo real
   const totalTecnicos = company.users.length;
-  const totalDDS = company.meetings.length;
-  const totalAssinaturas = company.meetings.reduce((acc, m) => acc + m._count.attendees, 0);
-  const totalRemotos = company.meetings.filter(m => m.type === 'REMOTE').length;
-  const totalPresenciais = company.meetings.filter(m => m.type === 'PRESENTIAL' || !m.type).length;
+  const totalDDS = meetings.length;
+  const totalAssinaturas = meetings.reduce((acc, m) => acc + m._count.attendees, 0);
+  const totalRemotos = meetings.filter(m => m.type === 'REMOTE').length;
+  const totalPresenciais = meetings.filter(m => m.type === 'PRESENTIAL' || !m.type).length;
   const isSuspended = company.status === 'SUSPENDED';
 
   return (
@@ -113,7 +118,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
         </header>
 
         {/* ========================================================================= */}
-        {/* CARDS DE MÉTRICAS DA EMPRESA */}
+        {/* CARDS DE MÉTRICAS */}
         {/* ========================================================================= */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1">
@@ -153,7 +158,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
         </div>
 
         {/* ========================================================================= */}
-        {/* SEÇÃO 1: TÉCNICOS E GESTORES VINCULADOS */}
+        {/* SEÇÃO 1: TÉCNICOS E GESTORES */}
         {/* ========================================================================= */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
           <div className="flex items-center justify-between">
@@ -229,7 +234,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Video size={18} className="text-emerald-400" /> Histórico de Treinamentos e DDSs ({company.meetings.length})
+                <Video size={18} className="text-emerald-400" /> Histórico de Treinamentos e DDSs ({meetings.length})
               </h2>
               <p className="text-xs text-slate-400">Registro de todas as atas geradas e reuniões realizadas</p>
             </div>
@@ -249,14 +254,14 @@ export default async function CompanyDetailPage({ params }: PageProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {company.meetings.length === 0 ? (
+                {meetings.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-slate-500">
-                      Nenhum DDS registrado por esta empresa até o momento.
+                      Nenhum DDS registrado por esta empresa ou seus técnicos até o momento.
                     </td>
                   </tr>
                 ) : (
-                  company.meetings.map((meeting) => (
+                  meetings.map((meeting) => (
                     <tr key={meeting.id} className="hover:bg-slate-800/30 transition-colors">
                       <td className="py-4">
                         <p className="font-bold text-white text-sm">{meeting.topic}</p>
@@ -310,9 +315,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
 
       </div>
 
-      {/* ========================================================================= */}
-      {/* RODAPÉ AM TST */}
-      {/* ========================================================================= */}
+      {/* FOOTER AM TST */}
       <footer className="mt-12 pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
         <p className="text-[11px] text-slate-500 font-normal">
           © {new Date().getFullYear()} <strong>DDS ON MASTER</strong> • Todos os direitos reservados.
