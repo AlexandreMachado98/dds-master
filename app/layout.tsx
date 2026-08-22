@@ -1,4 +1,6 @@
-import type { Metadata } from "next";
+ import type { Metadata } from "next";
+
+// @ts-ignore -> Isso manda o VS Code parar de encher o saco com o arquivo CSS!
 import "./globals.css";
 
 export const metadata: Metadata = {
