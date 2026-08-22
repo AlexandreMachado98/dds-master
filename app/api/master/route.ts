@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+// Criação segura da conexão com o banco de dados
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
@@ -14,9 +15,7 @@ export async function GET() {
     const companies = await prisma.company.findMany({
       include: {
         users: true,
-        meetings: {
-          include: { attendees: true }
-        }
+        meetings: { include: { attendees: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -28,7 +27,6 @@ export async function GET() {
 
     const pendingUsers = await prisma.user.findMany({
       where: { status: 'PENDING_APPROVAL' },
-      include: { companyRel: true },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -37,7 +35,6 @@ export async function GET() {
       0
     );
 
-    // BI: Contagem de temas mais falados
     const topicMap: Record<string, number> = {};
     allMeetings.forEach((m) => {
       const t = String(m.topic || '').trim();
