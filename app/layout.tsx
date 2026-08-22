@@ -1,6 +1,6 @@
  import type { Metadata } from "next";
 
-// @ts-ignore -> Isso manda o VS Code parar de encher o saco com o arquivo CSS!
+// @ts-ignore -> Manda o VS Code ignorar a linha vermelha do CSS
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,6 +15,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
+      <head>
+        {/* MOTOR DO TAILWIND DIRETO NO NAVEGADOR (GARANTIA DE ESTILIZAÇÃO) */}
+        <script src="https://cdn.tailwindcss.com"></script>
+      </head>
       <body className="font-sans antialiased bg-slate-950 text-slate-100 min-h-screen">
         {children}
       </body>
