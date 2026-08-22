@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ShieldAlert, Building2, Users, Video, BarChart3, 
   Lock, Unlock, RefreshCw, PlusCircle, 
-  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2
+  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2, KeyRound
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -36,8 +36,9 @@ interface PendingUser {
   name: string;
   email: string;
   position: string | null;
-    company: string | null;
+  company: string | null;
   companyRel?: { name: string } | null;
+  createdAt: string;
 }
 
 export default function MasterDashboard() {
@@ -169,7 +170,7 @@ export default function MasterDashboard() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast(newStatus === 'ACTIVE' ? 'Técnico aprovado com sucesso!' : 'Solicitação de acesso recusada.', 'success');
+        showToast(newStatus === 'ACTIVE' ? 'Técnico aprovado com sucesso!' : 'Solicitação recusada e bloqueada.', 'success');
         loadDashboardData();
       } else {
         showToast('Erro ao processar a aprovação.', 'error');
@@ -217,7 +218,7 @@ export default function MasterDashboard() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col justify-between relative">
       
-      {/* ================= TOAST DE NOTIFICAÇÃO ================= */}
+      {/* TOASTS */}
       {toast.show && (
         <div className={`fixed top-6 right-6 z-[9999] px-5 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-5 duration-300 ${
           toast.type === 'success' ? 'bg-green-950/90 border-green-500/50 text-green-100' :
@@ -231,7 +232,7 @@ export default function MasterDashboard() {
         </div>
       )}
 
-      {/* ================= MODAL DE CONFIRMAÇÃO ================= */}
+      {/* MODAL CONFIRM */}
       {confirmDialog && (
         <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
@@ -241,18 +242,8 @@ export default function MasterDashboard() {
             </div>
             <p className="text-sm text-slate-300 mb-6 leading-relaxed">{confirmDialog.message}</p>
             <div className="flex gap-3">
-              <button 
-                onClick={() => setConfirmDialog(null)}
-                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-colors"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={confirmDialog.onConfirm}
-                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 transition-all"
-              >
-                Confirmar
-              </button>
+              <button onClick={() => setConfirmDialog(null)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-colors">Cancelar</button>
+              <button onClick={confirmDialog.onConfirm} className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 transition-all">Confirmar</button>
             </div>
           </div>
         </div>
@@ -260,7 +251,7 @@ export default function MasterDashboard() {
 
       <div className="max-w-7xl w-full mx-auto space-y-8">
         
-        {/* Topo do Backoffice AM TST */}
+        {/* Topo */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-6 rounded-3xl backdrop-blur-md shadow-2xl">
           <div className="flex items-center gap-3.5">
             <div className="p-3.5 bg-green-500/10 text-green-400 rounded-2xl border border-green-500/20">
@@ -296,11 +287,11 @@ export default function MasterDashboard() {
           </div>
         </header>
 
-        {/* Cards de Métricas Globais */}
+        {/* Métricas Globais */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-              <Building2 size={15} className="text-green-400" /> Empresas Clientes
+              <Building2 size={15} className="text-blue-400" /> Empresas Clientes
             </span>
             <p className="text-3xl font-black text-white">{metrics.totalCompanies}</p>
           </div>
@@ -327,7 +318,7 @@ export default function MasterDashboard() {
           </div>
         </div>
 
-        {/* Abas do Sistema Master */}
+        {/* Abas */}
         <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-2xl max-w-xl mx-auto">
           <button
             onClick={() => setActiveTab('ANALYTICS')}
@@ -353,26 +344,26 @@ export default function MasterDashboard() {
               activeTab === 'APPROVALS' ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Users size={15} /> Fila de Aprovação ({pendingUsers.length})
+            <Users size={15} /> Fila de Aprovação
+            {pendingUsers.length > 0 && (
+              <span className="bg-amber-500 text-slate-950 px-1.5 rounded-full text-[10px] ml-1">{pendingUsers.length}</span>
+            )}
           </button>
         </div>
 
+        {/* ========================================================================= */}
         {/* ABA 1: BI & ANALYTICS */}
+        {/* ========================================================================= */}
         {activeTab === 'ANALYTICS' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
-            {/* Ranking dos Temas Mais Falados */}
             <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Flame size={18} className="text-amber-500" /> Temas Mais Debatidos no Campo
+                    <Flame size={18} className="text-amber-500" /> Temas Mais Debatidos
                   </h3>
-                  <p className="text-xs text-slate-400">Assuntos mais frequentes nos diálogos de segurança</p>
+                  <p className="text-xs text-slate-400">Assuntos mais frequentes nos treinamentos</p>
                 </div>
-                <span className="text-[10px] bg-slate-800 text-green-400 font-bold px-2.5 py-1 rounded-md border border-slate-700">
-                  Top Assuntos
-                </span>
               </div>
 
               {topTopics.length === 0 ? (
@@ -396,18 +387,14 @@ export default function MasterDashboard() {
               )}
             </div>
 
-            {/* Ranking das Empresas Mais Ativas */}
             <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <TrendingUp size={18} className="text-green-400" /> Empresas com Maior Engajamento
                   </h3>
-                  <p className="text-xs text-slate-400">Clientes que mais realizam treinamentos e coletam presenças</p>
+                  <p className="text-xs text-slate-400">Clientes que mais realizam treinamentos</p>
                 </div>
-                <span className="text-[10px] bg-slate-800 text-green-400 font-bold px-2.5 py-1 rounded-md border border-slate-700">
-                  Ranking Geral
-                </span>
               </div>
 
               {companies.length === 0 ? (
@@ -437,12 +424,14 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ABA 2: EMPRESAS E CADASTRO */}
+        {/* ========================================================================= */}
+        {/* ABA 2: EMPRESAS (CADASTRO E KILL-SWITCH) */}
+        {/* ========================================================================= */}
         {activeTab === 'COMPANIES' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 shadow-xl">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <PlusCircle size={18} className="text-green-500" /> Cadastrar Nova Empresa / Fazenda Cliente
+                <PlusCircle size={18} className="text-green-500" /> Cadastrar Empresa Cliente e Gerar Chave
               </h3>
               
               <form onSubmit={handleCreateCompany} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -458,24 +447,28 @@ export default function MasterDashboard() {
                   type="text"
                   value={newCompanyDoc}
                   onChange={(e) => setNewCompanyDoc(e.target.value)}
-                  placeholder="CNPJ ou Documento (Opcional)"
+                  placeholder="CNPJ ou CPF (Opcional)"
                   className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500"
                 />
 
-                <input
-                  type="text"
-                  value={newCompanyKey}
-                  onChange={(e) => setNewCompanyKey(e.target.value)}
-                  placeholder="Palavra-Chave (Ex: AGRO2026)"
-                  className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500 font-mono uppercase"
-                />
+                <div className="relative">
+                  <KeyRound size={14} className="absolute left-3 top-3 text-slate-500" />
+                  <input
+                    type="text"
+                    value={newCompanyKey}
+                    onChange={(e) => setNewCompanyKey(e.target.value)}
+                    placeholder="Palavra-Chave (Ex: AGRO26)"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500 font-mono uppercase"
+                  />
+                </div>
 
                 <button
                   type="submit"
                   disabled={isCreatingCompany}
-                  className="sm:col-span-3 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-lg"
+                  className="sm:col-span-3 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-lg"
                 >
-                  <Building2 size={15} /> Cadastrar Empresa e Liberar Palavra-Chave
+                  {isCreatingCompany ? <Loader2 size={15} className="animate-spin" /> : <Building2 size={15} />}
+                  Cadastrar Empresa e Ativar Palavra-Chave
                 </button>
               </form>
             </div>
@@ -488,17 +481,17 @@ export default function MasterDashboard() {
                   <thead>
                     <tr className="border-b border-slate-800 text-slate-400">
                       <th className="pb-3 font-semibold">Empresa / Cliente</th>
-                      <th className="pb-3 font-semibold">Palavra-Chave (Auto-Acesso)</th>
-                      <th className="pb-3 font-semibold">DDSs Realizados</th>
+                      <th className="pb-3 font-semibold">Palavra-Chave Mágica</th>
+                      <th className="pb-3 font-semibold">Volume DDS</th>
                       <th className="pb-3 font-semibold">Status de Acesso</th>
-                      <th className="pb-3 font-semibold text-right">Controle de Bloqueio (Kill-Switch)</th>
+                      <th className="pb-3 font-semibold text-right">Controle (Kill-Switch)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {companies.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="py-8 text-center text-slate-500">
-                          Nenhuma empresa cadastrada manualmente ainda.
+                          Nenhuma empresa cadastrada.
                         </td>
                       </tr>
                     ) : (
@@ -508,7 +501,7 @@ export default function MasterDashboard() {
                           <tr key={comp.id} className="hover:bg-slate-800/30 transition-colors">
                             <td className="py-4">
                               <p className="font-bold text-white text-sm">{comp.name}</p>
-                              <p className="text-[11px] text-slate-500">{comp.document || 'Sem CNPJ'}</p>
+                              <p className="text-[11px] text-slate-500">{comp.document || 'Sem Documento'}</p>
                             </td>
                             <td className="py-4">
                               <span className="font-mono bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800 text-green-400 font-bold">
@@ -516,7 +509,8 @@ export default function MasterDashboard() {
                               </span>
                             </td>
                             <td className="py-4 font-bold text-slate-300">
-                              {comp.totalMeetings} reuniões
+                              {comp.totalMeetings} reuniões<br/>
+                              <span className="text-[10px] font-normal text-slate-500">{comp.totalUsers} técnicos</span>
                             </td>
                             <td className="py-4">
                               <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] ${
@@ -550,14 +544,16 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ABA 3: FILA DE APROVAÇÃO */}
+        {/* ========================================================================= */}
+        {/* ABA 3: FILA DE APROVAÇÃO (TÉCNICOS SEM PALAVRA-CHAVE) */}
+        {/* ========================================================================= */}
         {activeTab === 'APPROVALS' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
             <div>
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Users size={18} className="text-green-400" /> Solicitações de Novos Organizadores
+                <Users size={18} className="text-amber-400" /> Aprovação Manual de Organizadores
               </h3>
-              <p className="text-xs text-slate-400">Técnicos que se cadastraram no DDS ON e aguardam liberação de acesso</p>
+              <p className="text-xs text-slate-400">Técnicos que se cadastraram sem utilizar a palavra-chave mágica da empresa.</p>
             </div>
 
             {pendingUsers.length === 0 ? (
@@ -573,7 +569,15 @@ export default function MasterDashboard() {
                     <div>
                       <p className="font-bold text-white text-sm">{user.name}</p>
                       <p className="text-xs text-slate-400">{user.email} • {user.position || 'Técnico'}</p>
-                      <p className="text-[11px] text-green-400 mt-0.5">Empresa informada: <strong>{user.companyRel?.name || user.company || 'Não vinculada'}</strong></p>
+                      
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md">
+                          Empresa informada: <strong className="text-amber-400">{user.company || 'Não vinculada'}</strong>
+                        </span>
+                        <span className="text-[10px] text-slate-500">
+                          {new Date(user.createdAt).toLocaleDateString('pt-BR')}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex gap-2">
