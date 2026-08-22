@@ -1,10 +1,10 @@
  'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ShieldAlert, Building2, Users, Video, BarChart3, 
   Lock, Unlock, RefreshCw, PlusCircle, 
-  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut
+  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -36,6 +36,7 @@ interface PendingUser {
   name: string;
   email: string;
   position: string | null;
+    company: string | null;
   companyRel?: { name: string } | null;
 }
 
@@ -61,7 +62,15 @@ export default function MasterDashboard() {
   const [newCompanyKey, setNewCompanyKey] = useState('');
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
 
-  // 1. Guarda de Segurança: Apenas com sessão mestre
+  // Sistema de Notificações
+  const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' | 'info' }>({ show: false, message: '', type: 'info' });
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 4000);
+  };
+
   useEffect(() => {
     const session = localStorage.getItem('dds_master_session');
     if (!session) {
@@ -69,41 +78,11 @@ export default function MasterDashboard() {
     }
   }, [router]);
 
-  // 2. Busca e atualização em tempo real
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadDashboardData = async () => {
-      try {
-        const res = await fetch('/api/master', { cache: 'no-store' });
-        if (!res.ok) return;
-
-        const data = await res.json();
-        if (isMounted && data.success) {
-          setMetrics(data.metrics);
-          setTopTopics(data.topTopics || []);
-          setCompanies(data.companies || []);
-          setPendingUsers(data.pendingUsers || []);
-          setLoading(false);
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    loadDashboardData();
-    const timer = setInterval(loadDashboardData, 4000);
-
-    return () => {
-      isMounted = false;
-      clearInterval(timer);
-    };
-  }, []);
-
-  const handleManualRefresh = async () => {
-    setLoading(true);
+  const loadDashboardData = useCallback(async () => {
     try {
       const res = await fetch('/api/master', { cache: 'no-store' });
+      if (!res.ok) return;
+
       const data = await res.json();
       if (data.success) {
         setMetrics(data.metrics);
@@ -111,11 +90,30 @@ export default function MasterDashboard() {
         setCompanies(data.companies || []);
         setPendingUsers(data.pendingUsers || []);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    loadDashboardData();
+    const timer = setInterval(() => {
+      if (isMounted) loadDashboardData();
+    }, 4000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, [loadDashboardData]);
+
+  const handleManualRefresh = async () => {
+    setLoading(true);
+    await loadDashboardData();
+    showToast('Dados atualizados com sucesso.', 'success');
   };
 
   const handleLogout = () => {
@@ -123,43 +121,68 @@ export default function MasterDashboard() {
     router.push('/login');
   };
 
-  const handleToggleCompanyStatus = async (companyId: string, currentStatus: string) => {
+  const handleToggleCompanyStatus = (companyId: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     const confirmMsg = nextStatus === 'SUSPENDED' 
-      ? 'Deseja SUSPENDER esta empresa? Todos os técnicos dela serão bloqueados imediatamente.' 
+      ? 'Deseja SUSPENDER esta empresa? O acesso de todos os técnicos e reuniões dela será pausado imediatamente.' 
       : 'Deseja REATIVAR o acesso desta empresa?';
 
-    if (confirm(confirmMsg)) {
-      await fetch('/api/master', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'update_company_status',
-          companyId,
-          newStatus: nextStatus
-        })
-      });
-      handleManualRefresh();
-    }
+    setConfirmDialog({
+      title: nextStatus === 'SUSPENDED' ? 'Bloquear Empresa' : 'Reativar Empresa',
+      message: confirmMsg,
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/master', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'update_company_status',
+              companyId,
+              newStatus: nextStatus
+            })
+          });
+          const data = await res.json();
+          if (data.success) {
+            showToast(nextStatus === 'SUSPENDED' ? 'Empresa suspensa com sucesso!' : 'Empresa reativada com sucesso!', 'success');
+            loadDashboardData();
+          } else {
+            showToast('Erro ao atualizar status da empresa.', 'error');
+          }
+        } catch {
+          showToast('Erro de conexão com o servidor.', 'error');
+        }
+        setConfirmDialog(null);
+      }
+    });
   };
 
   const handleUserApproval = async (userId: string, newStatus: 'ACTIVE' | 'BLOCKED') => {
-    await fetch('/api/master', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'update_user_status',
-        userId,
-        newStatus
-      })
-    });
-    handleManualRefresh();
+    try {
+      const res = await fetch('/api/master', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_user_status',
+          userId,
+          newStatus
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(newStatus === 'ACTIVE' ? 'Técnico aprovado com sucesso!' : 'Solicitação de acesso recusada.', 'success');
+        loadDashboardData();
+      } else {
+        showToast('Erro ao processar a aprovação.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão.', 'error');
+    }
   };
 
   const handleCreateCompany = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCompanyName || !newCompanyKey) {
-      alert('Preencha o nome da empresa e a palavra-chave.');
+    if (!newCompanyName.trim() || !newCompanyKey.trim()) {
+      showToast('Preencha o nome da empresa e a palavra-chave.', 'error');
       return;
     }
 
@@ -179,23 +202,65 @@ export default function MasterDashboard() {
         setNewCompanyName('');
         setNewCompanyDoc('');
         setNewCompanyKey('');
-        handleManualRefresh();
-        alert('✅ Empresa cadastrada com sucesso!');
+        loadDashboardData();
+        showToast('Empresa cadastrada com sucesso!', 'success');
       } else {
-        alert(data.error);
+        showToast(data.error || 'Erro ao cadastrar empresa.', 'error');
       }
     } catch {
-      alert('Erro ao criar empresa.');
+      showToast('Erro de conexão ao criar empresa.', 'error');
     } finally {
       setIsCreatingCompany(false);
     }
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col justify-between">
+    <main className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col justify-between relative">
+      
+      {/* ================= TOAST DE NOTIFICAÇÃO ================= */}
+      {toast.show && (
+        <div className={`fixed top-6 right-6 z-[9999] px-5 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-5 duration-300 ${
+          toast.type === 'success' ? 'bg-green-950/90 border-green-500/50 text-green-100' :
+          toast.type === 'error' ? 'bg-red-950/90 border-red-500/50 text-red-100' :
+          'bg-slate-900 border-slate-700 text-slate-100'
+        }`}>
+          {toast.type === 'success' && <CheckCircle2 size={20} className="text-green-400" />}
+          {toast.type === 'error' && <AlertTriangle size={20} className="text-red-400" />}
+          {toast.type === 'info' && <Info size={20} className="text-blue-400" />}
+          <p className="text-sm font-semibold">{toast.message}</p>
+        </div>
+      )}
+
+      {/* ================= MODAL DE CONFIRMAÇÃO ================= */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-4 text-amber-400">
+              <AlertTriangle size={24} />
+              <h2 className="text-lg font-bold text-white">{confirmDialog.title}</h2>
+            </div>
+            <p className="text-sm text-slate-300 mb-6 leading-relaxed">{confirmDialog.message}</p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmDialog(null)}
+                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-colors"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmDialog.onConfirm}
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 transition-all"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl w-full mx-auto space-y-8">
         
-        {/* Topo do Backoffice */}
+        {/* Topo do Backoffice AM TST */}
         <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-6 rounded-3xl backdrop-blur-md shadow-2xl">
           <div className="flex items-center gap-3.5">
             <div className="p-3.5 bg-green-500/10 text-green-400 rounded-2xl border border-green-500/20">
@@ -210,7 +275,7 @@ export default function MasterDashboard() {
                   Super Admin
                 </span>
               </div>
-              <p className="text-slate-400 text-xs mt-0.5">Sessão Mestre: Alexandre Machado (Proprietário)</p>
+              <p className="text-slate-400 text-xs mt-0.5">Centro de Controle Multi-Tenant & Inteligência de Dados</p>
             </div>
           </div>
 
@@ -219,7 +284,7 @@ export default function MasterDashboard() {
               onClick={handleManualRefresh}
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors border border-slate-700"
             >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar Dados
             </button>
 
             <button
@@ -262,8 +327,8 @@ export default function MasterDashboard() {
           </div>
         </div>
 
-        {/* Abas */}
-        <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-2xl max-w-xl">
+        {/* Abas do Sistema Master */}
+        <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-2xl max-w-xl mx-auto">
           <button
             onClick={() => setActiveTab('ANALYTICS')}
             className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
@@ -295,13 +360,15 @@ export default function MasterDashboard() {
         {/* ABA 1: BI & ANALYTICS */}
         {activeTab === 'ANALYTICS' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            {/* Ranking dos Temas Mais Falados */}
             <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Flame size={18} className="text-amber-500" /> Temas Mais Debatidos no Campo
                   </h3>
-                  <p className="text-xs text-slate-400">Assuntos mais frequentes nos treinamentos</p>
+                  <p className="text-xs text-slate-400">Assuntos mais frequentes nos diálogos de segurança</p>
                 </div>
                 <span className="text-[10px] bg-slate-800 text-green-400 font-bold px-2.5 py-1 rounded-md border border-slate-700">
                   Top Assuntos
@@ -329,13 +396,14 @@ export default function MasterDashboard() {
               )}
             </div>
 
+            {/* Ranking das Empresas Mais Ativas */}
             <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <TrendingUp size={18} className="text-green-400" /> Empresas com Maior Engajamento
                   </h3>
-                  <p className="text-xs text-slate-400">Clientes que mais realizam treinamentos</p>
+                  <p className="text-xs text-slate-400">Clientes que mais realizam treinamentos e coletam presenças</p>
                 </div>
                 <span className="text-[10px] bg-slate-800 text-green-400 font-bold px-2.5 py-1 rounded-md border border-slate-700">
                   Ranking Geral
@@ -369,7 +437,7 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ABA 2: EMPRESAS */}
+        {/* ABA 2: EMPRESAS E CADASTRO */}
         {activeTab === 'COMPANIES' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 shadow-xl">
@@ -405,7 +473,7 @@ export default function MasterDashboard() {
                 <button
                   type="submit"
                   disabled={isCreatingCompany}
-                  className="sm:col-span-3 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-lg shadow-green-600/20"
+                  className="sm:col-span-3 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-lg"
                 >
                   <Building2 size={15} /> Cadastrar Empresa e Liberar Palavra-Chave
                 </button>
@@ -427,46 +495,54 @@ export default function MasterDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
-                    {companies.map((comp) => {
-                      const isSuspended = comp.status === 'SUSPENDED';
-                      return (
-                        <tr key={comp.id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-4">
-                            <p className="font-bold text-white text-sm">{comp.name}</p>
-                            <p className="text-[11px] text-slate-500">{comp.document || 'Sem CNPJ'}</p>
-                          </td>
-                          <td className="py-4">
-                            <span className="font-mono bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800 text-green-400 font-bold">
-                              {comp.secretKey || 'NÃO CONFIGURADA'}
-                            </span>
-                          </td>
-                          <td className="py-4 font-bold text-slate-300">
-                            {comp.totalMeetings} reuniões
-                          </td>
-                          <td className="py-4">
-                            <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] ${
-                              isSuspended 
-                                ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-                                : 'bg-green-500/20 text-green-400 border border-green-500/30'
-                            }`}>
-                              {isSuspended ? '🔴 SUSPENSA' : '🟢 ATIVA'}
-                            </span>
-                          </td>
-                          <td className="py-4 text-right">
-                            <button
-                              onClick={() => handleToggleCompanyStatus(comp.id, comp.status)}
-                              className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 ml-auto transition-all ${
-                                isSuspended
-                                  ? 'bg-green-600 hover:bg-green-700 text-white shadow-md'
-                                  : 'bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30'
-                              }`}
-                            >
-                              {isSuspended ? <><Unlock size={13} /> Reativar Acesso</> : <><Lock size={13} /> Bloquear Empresa</>}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {companies.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-slate-500">
+                          Nenhuma empresa cadastrada manualmente ainda.
+                        </td>
+                      </tr>
+                    ) : (
+                      companies.map((comp) => {
+                        const isSuspended = comp.status === 'SUSPENDED';
+                        return (
+                          <tr key={comp.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-4">
+                              <p className="font-bold text-white text-sm">{comp.name}</p>
+                              <p className="text-[11px] text-slate-500">{comp.document || 'Sem CNPJ'}</p>
+                            </td>
+                            <td className="py-4">
+                              <span className="font-mono bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800 text-green-400 font-bold">
+                                {comp.secretKey || 'NÃO CONFIGURADA'}
+                              </span>
+                            </td>
+                            <td className="py-4 font-bold text-slate-300">
+                              {comp.totalMeetings} reuniões
+                            </td>
+                            <td className="py-4">
+                              <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] ${
+                                isSuspended 
+                                  ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
+                                  : 'bg-green-500/20 text-green-400 border border-green-500/30'
+                              }`}>
+                                {isSuspended ? '🔴 SUSPENSA' : '🟢 ATIVA'}
+                              </span>
+                            </td>
+                            <td className="py-4 text-right">
+                              <button
+                                onClick={() => handleToggleCompanyStatus(comp.id, comp.status)}
+                                className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 ml-auto transition-all ${
+                                  isSuspended
+                                    ? 'bg-green-600 hover:bg-green-700 text-white shadow-md'
+                                    : 'bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30'
+                                }`}
+                              >
+                                {isSuspended ? <><Unlock size={13} /> Reativar Acesso</> : <><Lock size={13} /> Bloquear Empresa</>}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -474,12 +550,14 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ABA 3: APROVAÇÕES */}
+        {/* ABA 3: FILA DE APROVAÇÃO */}
         {activeTab === 'APPROVALS' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
             <div>
-              <h3 className="text-base font-bold text-white">Solicitações de Novos Organizadores</h3>
-              <p className="text-xs text-slate-400">Técnicos que se cadastraram sem a palavra-chave e aguardam autorização</p>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Users size={18} className="text-green-400" /> Solicitações de Novos Organizadores
+              </h3>
+              <p className="text-xs text-slate-400">Técnicos que se cadastraram no DDS ON e aguardam liberação de acesso</p>
             </div>
 
             {pendingUsers.length === 0 ? (
@@ -495,7 +573,7 @@ export default function MasterDashboard() {
                     <div>
                       <p className="font-bold text-white text-sm">{user.name}</p>
                       <p className="text-xs text-slate-400">{user.email} • {user.position || 'Técnico'}</p>
-                      <p className="text-[11px] text-green-400 mt-0.5">Empresa: {user.companyRel?.name || 'Não vinculada'}</p>
+                      <p className="text-[11px] text-green-400 mt-0.5">Empresa informada: <strong>{user.companyRel?.name || user.company || 'Não vinculada'}</strong></p>
                     </div>
 
                     <div className="flex gap-2">
@@ -523,7 +601,7 @@ export default function MasterDashboard() {
       </div>
 
       <footer className="mt-12 pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
-        <p className="text-[11px] text-slate-500">
+        <p className="text-[11px] text-slate-500 font-normal">
           © {new Date().getFullYear()} <strong>DDS ON MASTER</strong> • Todos os direitos reservados.
         </p>
         <div className="flex items-center justify-center gap-1 text-[11px] text-slate-500">
@@ -534,7 +612,7 @@ export default function MasterDashboard() {
             rel="noopener noreferrer"
             className="text-green-400 hover:text-green-300 font-bold inline-flex items-center gap-1 transition-colors underline underline-offset-2"
           >
-            AM TST (amtst.vercel.app) <ExternalLink size={10} />
+            AM TST <ExternalLink size={10} />
           </a>
         </div>
       </footer>
