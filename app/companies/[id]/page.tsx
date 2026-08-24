@@ -6,6 +6,7 @@ import {
   MapPin, ShieldCheck, ExternalLink, Activity
 } from 'lucide-react';
 import { PrismaClient } from '@prisma/client';
+import CompanyUserTable from './CompanyUserTable'; // Componente de ações do usuário
 
 const prisma = new PrismaClient();
 
@@ -40,7 +41,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  // 2. Busca TODOS os DDSs (diretos da empresa OU feitos pelos técnicos vinculados a ela)
+  // 2. Busca reuniões da empresa ou dos técnicos
   const meetings = await prisma.meeting.findMany({
     where: {
       OR: [
@@ -49,17 +50,12 @@ export default async function CompanyDetailPage({ params }: PageProps) {
       ]
     },
     include: {
-      organizer: {
-        select: { name: true, email: true }
-      },
-      _count: {
-        select: { attendees: true }
-      }
+      organizer: { select: { name: true, email: true } },
+      _count: { select: { attendees: true } }
     },
     orderBy: { createdAt: 'desc' }
   });
 
-  // Métricas calculadas em tempo real
   const totalTecnicos = company.users.length;
   const totalDDS = meetings.length;
   const totalAssinaturas = meetings.reduce((acc, m) => acc + m._count.attendees, 0);
@@ -71,9 +67,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
     <main className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col justify-between">
       <div className="max-w-7xl w-full mx-auto space-y-8">
         
-        {/* ========================================================================= */}
         {/* CABEÇALHO */}
-        {/* ========================================================================= */}
         <header className="bg-slate-900/90 border border-slate-800 p-6 rounded-3xl backdrop-blur-md shadow-2xl space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
@@ -104,7 +98,6 @@ export default async function CompanyDetailPage({ params }: PageProps) {
               </div>
             </div>
 
-            {/* Palavra-Chave */}
             <div className="bg-slate-950 border border-slate-800 px-4 py-3 rounded-2xl flex items-center gap-3">
               <KeyRound size={18} className="text-green-400" />
               <div>
@@ -117,9 +110,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
           </div>
         </header>
 
-        {/* ========================================================================= */}
         {/* CARDS DE MÉTRICAS */}
-        {/* ========================================================================= */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
@@ -157,79 +148,10 @@ export default async function CompanyDetailPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* ========================================================================= */}
-        {/* SEÇÃO 1: TÉCNICOS E GESTORES */}
-        {/* ========================================================================= */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Users size={18} className="text-green-400" /> Técnicos e Organizadores ({company.users.length})
-              </h2>
-              <p className="text-xs text-slate-400">Profissionais autorizados a conduzir treinamentos nesta empresa</p>
-            </div>
-          </div>
+        {/* SEÇÃO 1: TABELA DE TÉCNICOS COM BOTÃO DE EXCLUSÃO */}
+        <CompanyUserTable initialUsers={company.users} />
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400">
-                  <th className="pb-3 font-semibold">Nome do Profissional</th>
-                  <th className="pb-3 font-semibold">Função / Cargo</th>
-                  <th className="pb-3 font-semibold">DDSs Ministrados</th>
-                  <th className="pb-3 font-semibold">Status</th>
-                  <th className="pb-3 font-semibold text-right">Data de Entrada</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {company.users.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-500">
-                      Nenhum técnico vinculado a esta empresa ainda.
-                    </td>
-                  </tr>
-                ) : (
-                  company.users.map((user) => (
-                    <tr key={user.id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="py-4">
-                        <p className="font-bold text-white text-sm">{user.name}</p>
-                        <p className="text-[11px] text-slate-500">{user.email}</p>
-                      </td>
-                      <td className="py-4 text-slate-300">
-                        <span className="bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
-                          {user.position || user.role}
-                        </span>
-                      </td>
-                      <td className="py-4">
-                        <span className="font-bold text-green-400 text-sm">
-                          {user._count.meetings}
-                        </span>
-                        <span className="text-[10px] text-slate-500 block">reuniões criadas</span>
-                      </td>
-                      <td className="py-4">
-                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] ${
-                          user.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                          user.status === 'PENDING_APPROVAL' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-                          'bg-red-500/20 text-red-400 border border-red-500/30'
-                        }`}>
-                          {user.status === 'ACTIVE' ? '🟢 ATIVO' :
-                           user.status === 'PENDING_APPROVAL' ? '🟡 PENDENTE' : '🔴 BLOQUEADO'}
-                        </span>
-                      </td>
-                      <td className="py-4 text-right text-slate-400">
-                        {new Date(user.createdAt).toLocaleDateString('pt-BR')}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* ========================================================================= */}
-        {/* SEÇÃO 2: HISTÓRICO DE DDSs REALIZADOS */}
-        {/* ========================================================================= */}
+        {/* SEÇÃO 2: HISTÓRICO DE DDSs */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
           <div className="flex items-center justify-between">
             <div>
@@ -315,7 +237,6 @@ export default async function CompanyDetailPage({ params }: PageProps) {
 
       </div>
 
-      {/* FOOTER AM TST */}
       <footer className="mt-12 pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
         <p className="text-[11px] text-slate-500 font-normal">
           © {new Date().getFullYear()} <strong>DDS ON MASTER</strong> • Todos os direitos reservados.

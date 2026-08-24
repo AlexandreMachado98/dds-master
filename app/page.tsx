@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ShieldAlert, Building2, Users, Video, BarChart3, 
   Lock, Unlock, RefreshCw, PlusCircle, 
-  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2, KeyRound
+  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2, KeyRound, Trash2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -180,6 +180,35 @@ export default function MasterDashboard() {
     }
   };
 
+  // =========================================================================
+  // FUNÇÃO DE EXCLUSÃO DEFINITIVA DE USUÁRIO
+  // =========================================================================
+  const handleDeleteUser = (userId: string, userName: string) => {
+    setConfirmDialog({
+      title: 'Excluir Usuário Permanentemente',
+      message: `Tem certeza que deseja excluir o usuário "${userName}"? Esta ação removerá o acesso definitivamente da plataforma.`,
+      onConfirm: async () => {
+        try {
+          const res = await fetch('/api/master', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId })
+          });
+          const data = await res.json();
+          if (data.success) {
+            showToast('Usuário excluído com sucesso!', 'success');
+            loadDashboardData();
+          } else {
+            showToast(data.error || 'Erro ao excluir usuário.', 'error');
+          }
+        } catch {
+          showToast('Erro de conexão com o servidor.', 'error');
+        }
+        setConfirmDialog(null);
+      }
+    });
+  };
+
   const handleCreateCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCompanyName.trim() || !newCompanyKey.trim()) {
@@ -351,9 +380,7 @@ export default function MasterDashboard() {
           </button>
         </div>
 
-        {/* ========================================================================= */}
         {/* ABA 1: BI & ANALYTICS */}
-        {/* ========================================================================= */}
         {activeTab === 'ANALYTICS' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
@@ -424,9 +451,7 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* ABA 2: EMPRESAS (CADASTRO, CLIQUE NO NOME E KILL-SWITCH) */}
-        {/* ========================================================================= */}
+        {/* ABA 2: EMPRESAS */}
         {activeTab === 'COMPANIES' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 shadow-xl">
@@ -499,7 +524,6 @@ export default function MasterDashboard() {
                         const isSuspended = comp.status === 'SUSPENDED';
                         return (
                           <tr key={comp.id} className="hover:bg-slate-800/30 transition-colors">
-                            {/* CLIQUE NO NOME DA EMPRESA ATIVADO */}
                             <td className="py-4">
                               <button
                                 onClick={() => router.push(`/companies/${comp.id}`)}
@@ -554,9 +578,7 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* ABA 3: FILA DE APROVAÇÃO (TÉCNICOS SEM PALAVRA-CHAVE) */}
-        {/* ========================================================================= */}
+        {/* ABA 3: FILA DE APROVAÇÃO (COM BOTÃO DE EXCLUIR) */}
         {activeTab === 'APPROVALS' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
             <div>
@@ -590,10 +612,18 @@ export default function MasterDashboard() {
                       </div>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleDeleteUser(user.id, user.name)}
+                        className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
+                        title="Excluir cadastro permanentemente"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+
                       <button
                         onClick={() => handleUserApproval(user.id, 'BLOCKED')}
-                        className="px-3.5 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
+                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
                       >
                         <X size={14} /> Recusar
                       </button>
@@ -614,7 +644,7 @@ export default function MasterDashboard() {
 
       </div>
 
-      {/* FOOTER AM TST */}
+      {/* FOOTER */}
       <footer className="mt-12 pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
         <p className="text-[11px] text-slate-500 font-normal">
           © {new Date().getFullYear()} <strong>DDS ON MASTER</strong> • Todos os direitos reservados.

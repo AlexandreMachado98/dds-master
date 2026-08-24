@@ -4,138 +4,101 @@ import { PrismaClient } from '@prisma/client';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Criação segura da conexão com o banco de dados
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
-// 1. GET: Retorna Métricas de BI, Rankings e Usuários Pendentes
 export async function GET() {
   try {
+    const totalCompanies = await prisma.company.count();
+    const totalMeetings = await prisma.meeting.count();
+    const totalAttendees = await prisma.attendance.count();
+    const pendingApprovals = await prisma.user.count({
+      where: { status: 'PENDING_APPROVAL' }
+    });
+
     const companies = await prisma.company.findMany({
       include: {
-        users: true,
-        meetings: { include: { attendees: true } }
+        _count: { select: { meetings: true, users: true } },
+        meetings: { select: { _count: { select: { attendees: true } } } }
       },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const formattedCompanies = companies.map((c) => ({
+      id: c.id,
+      name: c.name,
+      document: c.document,
+      status: c.status,
+      secretKey: c.secretKey,
+      totalMeetings: c._count.meetings,
+      totalUsers: c._count.users,
+      totalAttendees: c.meetings.reduce((acc, m) => acc + m._count.attendees, 0)
+    }));
+
+    const pendingUsers = await prisma.user.findMany({
+      where: { status: 'PENDING_APPROVAL' },
+      include: { companyRel: { select: { name: true } } },
       orderBy: { createdAt: 'desc' }
     });
 
     const allMeetings = await prisma.meeting.findMany({
-      include: { attendees: true },
-      orderBy: { createdAt: 'desc' }
+      select: { topic: true }
     });
-
-    const pendingUsers = await prisma.user.findMany({
-      where: { status: 'PENDING_APPROVAL' },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    const totalAttendees = allMeetings.reduce(
-      (acc, m) => acc + (m.attendees?.length || 0),
-      0
-    );
-
-    const topicMap: Record<string, number> = {};
+    const topicCounts: Record<string, number> = {};
     allMeetings.forEach((m) => {
-      const t = String(m.topic || '').trim();
-      if (t) {
-        topicMap[t] = (topicMap[t] || 0) + 1;
-      }
+      topicCounts[m.topic] = (topicCounts[m.topic] || 0) + 1;
     });
-
-    const topTopics = Object.entries(topicMap)
+    const topTopics = Object.entries(topicCounts)
       .map(([topic, count]) => ({ topic, count }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
-
-    const companyRanking = companies
-      .map((c) => ({
-        id: c.id,
-        name: c.name,
-        document: c.document,
-        status: c.status,
-        secretKey: c.secretKey,
-        totalMeetings: c.meetings?.length || 0,
-        totalUsers: c.users?.length || 0,
-        totalAttendees: (c.meetings || []).reduce(
-          (acc, m) => acc + (m.attendees?.length || 0),
-          0
-        )
-      }))
-      .sort((a, b) => b.totalMeetings - a.totalMeetings);
+      .slice(0, 5);
 
     return NextResponse.json({
       success: true,
-      metrics: {
-        totalCompanies: companies.length,
-        totalMeetings: allMeetings.length,
-        totalAttendees,
-        pendingApprovals: pendingUsers.length
-      },
-      topTopics,
-      companies: companyRanking,
-      pendingUsers
+      metrics: { totalCompanies, totalMeetings, totalAttendees, pendingApprovals },
+      companies: formattedCompanies,
+      pendingUsers,
+      topTopics
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Erro no servidor';
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error?.message }, { status: 500 });
   }
 }
 
-// 2. POST: Cadastra nova empresa
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json();
     const { name, document, secretKey } = body;
 
     if (!name || !secretKey) {
-      return NextResponse.json(
-        { success: false, error: 'Nome e Palavra-chave são obrigatórios' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'Nome e Palavra-Chave são obrigatórios.' }, { status: 400 });
     }
 
-    const newCompany = await prisma.company.create({
+    const company = await prisma.company.create({
       data: {
         name: String(name).trim(),
         document: document ? String(document).trim() : null,
         secretKey: String(secretKey).trim().toUpperCase(),
-        status: 'ACTIVE',
-        autoApproveWithKey: true
+        status: 'ACTIVE'
       }
     });
 
-    return NextResponse.json({ success: true, company: newCompany });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Erro ao cadastrar';
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, company });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error?.message }, { status: 500 });
   }
 }
 
-// 3. PATCH: Ações de Bloqueio, Alteração de Chave e Aprovação
 export async function PATCH(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const { action, companyId, userId, newStatus, newSecretKey } = body;
+    const body = await req.json();
+    const { action, companyId, newStatus, userId } = body;
 
     if (action === 'update_company_status') {
       const updated = await prisma.company.update({
         where: { id: companyId },
         data: { status: newStatus }
-      });
-      return NextResponse.json({ success: true, company: updated });
-    }
-
-    if (action === 'update_secret_key') {
-      const updated = await prisma.company.update({
-        where: { id: companyId },
-        data: { secretKey: String(newSecretKey).trim().toUpperCase() }
       });
       return NextResponse.json({ success: true, company: updated });
     }
@@ -148,12 +111,53 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, user: updated });
     }
 
-    return NextResponse.json({ success: false, error: 'Ação inválida' }, { status: 400 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Erro ao processar';
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
-    );
+    // =========================================================================
+    // EXCLUSÃO SEGURA DE USUÁRIO VIA PATCH ACTION
+    // =========================================================================
+    if (action === 'delete_user') {
+      // 1. Desvincula reuniões para não quebrar a chave estrangeira
+      await prisma.meeting.updateMany({
+        where: { organizerId: userId },
+        data: { organizerId: null }
+      });
+
+      // 2. Deleta o usuário definitivamente
+      await prisma.user.delete({
+        where: { id: userId }
+      });
+
+      return NextResponse.json({ success: true, message: 'Usuário excluído com sucesso.' });
+    }
+
+    return NextResponse.json({ success: false, error: 'Ação inválida.' }, { status: 400 });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error?.message }, { status: 500 });
+  }
+}
+
+// Endpoint DELETE direto
+export async function DELETE(req: Request) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { userId } = body;
+
+    if (!userId) {
+      return NextResponse.json({ success: false, error: 'ID do usuário não informado.' }, { status: 400 });
+    }
+
+    // 1. Desvincula reuniões
+    await prisma.meeting.updateMany({
+      where: { organizerId: userId },
+      data: { organizerId: null }
+    });
+
+    // 2. Deleta o usuário
+    await prisma.user.delete({
+      where: { id: userId }
+    });
+
+    return NextResponse.json({ success: true, message: 'Usuário excluído com sucesso.' });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, error: error?.message }, { status: 500 });
   }
 }
