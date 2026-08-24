@@ -42,6 +42,18 @@ export async function GET() {
       orderBy: { createdAt: 'desc' }
     });
 
+    // BUSCA USUÁRIOS AVULSOS (SEM VÍNCULO COM EMPRESA)
+    const unlinkedUsers = await prisma.user.findMany({
+      where: {
+        companyId: null,
+        role: { not: 'SUPER_ADMIN' }
+      },
+      include: {
+        _count: { select: { meetings: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
     const allMeetings = await prisma.meeting.findMany({
       select: { topic: true }
     });
@@ -59,6 +71,7 @@ export async function GET() {
       metrics: { totalCompanies, totalMeetings, totalAttendees, pendingApprovals },
       companies: formattedCompanies,
       pendingUsers,
+      unlinkedUsers,
       topTopics
     });
   } catch (error: any) {
@@ -112,16 +125,37 @@ export async function PATCH(req: Request) {
     }
 
     // =========================================================================
-    // EXCLUSÃO SEGURA DE USUÁRIO VIA PATCH ACTION
+    // VINCULAR USUÁRIO AVULSO A UMA EMPRESA EXISTENTE
     // =========================================================================
+    if (action === 'link_user_company') {
+      const { targetCompanyId } = body;
+      const targetCompany = await prisma.company.findUnique({
+        where: { id: targetCompanyId }
+      });
+
+      if (!targetCompany) {
+        return NextResponse.json({ success: false, error: 'Empresa selecionada não encontrada.' }, { status: 404 });
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          companyId: targetCompany.id,
+          company: targetCompany.name,
+          status: 'ACTIVE' // Ativa o usuário automaticamente ao ser formalmente vinculado
+        }
+      });
+
+      return NextResponse.json({ success: true, user: updated });
+    }
+
+    // EXCLUSÃO DE USUÁRIO
     if (action === 'delete_user') {
-      // 1. Desvincula reuniões para não quebrar a chave estrangeira
       await prisma.meeting.updateMany({
         where: { organizerId: userId },
         data: { organizerId: null }
       });
 
-      // 2. Deleta o usuário definitivamente
       await prisma.user.delete({
         where: { id: userId }
       });
@@ -135,7 +169,6 @@ export async function PATCH(req: Request) {
   }
 }
 
-// Endpoint DELETE direto
 export async function DELETE(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -145,13 +178,11 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ success: false, error: 'ID do usuário não informado.' }, { status: 400 });
     }
 
-    // 1. Desvincula reuniões
     await prisma.meeting.updateMany({
       where: { organizerId: userId },
       data: { organizerId: null }
     });
 
-    // 2. Deleta o usuário
     await prisma.user.delete({
       where: { id: userId }
     });

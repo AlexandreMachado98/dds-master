@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ShieldAlert, Building2, Users, Video, BarChart3, 
   Lock, Unlock, RefreshCw, PlusCircle, 
-  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2, KeyRound, Trash2
+  Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2, KeyRound, Trash2, UserX, Link2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -41,9 +41,20 @@ interface PendingUser {
   createdAt: string;
 }
 
+interface UnlinkedUser {
+  id: string;
+  name: string;
+  email: string;
+  position: string | null;
+  company: string | null;
+  status: string;
+  createdAt: string;
+  _count?: { meetings: number };
+}
+
 export default function MasterDashboard() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'ANALYTICS' | 'COMPANIES' | 'APPROVALS'>('ANALYTICS');
+  const [activeTab, setActiveTab] = useState<'ANALYTICS' | 'COMPANIES' | 'APPROVALS' | 'UNLINKED'>('ANALYTICS');
   const [loading, setLoading] = useState(true);
 
   // Estados dos Dados
@@ -56,6 +67,10 @@ export default function MasterDashboard() {
   const [topTopics, setTopTopics] = useState<TopTopic[]>([]);
   const [companies, setCompanies] = useState<CompanyData[]>([]);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [unlinkedUsers, setUnlinkedUsers] = useState<UnlinkedUser[]>([]);
+
+  // Estado para armazenar qual empresa foi selecionada para vincular cada usuário avulso
+  const [selectedCompanyForUser, setSelectedCompanyForUser] = useState<Record<string, string>>({});
 
   // Formulário de Nova Empresa
   const [newCompanyName, setNewCompanyName] = useState('');
@@ -90,6 +105,7 @@ export default function MasterDashboard() {
         setTopTopics(data.topTopics || []);
         setCompanies(data.companies || []);
         setPendingUsers(data.pendingUsers || []);
+        setUnlinkedUsers(data.unlinkedUsers || []);
       }
     } catch (err) {
       console.error(err);
@@ -180,9 +196,37 @@ export default function MasterDashboard() {
     }
   };
 
-  // =========================================================================
-  // FUNÇÃO DE EXCLUSÃO DEFINITIVA DE USUÁRIO
-  // =========================================================================
+  // VINCULAR USUÁRIO AVULSO A UMA EMPRESA
+  const handleLinkUserToCompany = async (userId: string) => {
+    const targetCompanyId = selectedCompanyForUser[userId];
+    if (!targetCompanyId) {
+      showToast('Selecione uma empresa na lista para vincular.', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/master', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'link_user_company',
+          userId,
+          targetCompanyId
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Técnico vinculado à empresa com sucesso!', 'success');
+        loadDashboardData();
+      } else {
+        showToast(data.error || 'Erro ao vincular empresa.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão ao vincular.', 'error');
+    }
+  };
+
+  // EXCLUIR USUÁRIO
   const handleDeleteUser = (userId: string, userName: string) => {
     setConfirmDialog({
       title: 'Excluir Usuário Permanentemente',
@@ -348,19 +392,19 @@ export default function MasterDashboard() {
         </div>
 
         {/* Abas */}
-        <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-2xl max-w-xl mx-auto">
+        <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-2xl max-w-2xl mx-auto flex-wrap gap-1">
           <button
             onClick={() => setActiveTab('ANALYTICS')}
-            className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 py-3 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
               activeTab === 'ANALYTICS' ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
             }`}
           >
-            <BarChart3 size={15} /> BI & Analytics
+            <BarChart3 size={15} /> Analytics
           </button>
 
           <button
             onClick={() => setActiveTab('COMPANIES')}
-            className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 py-3 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
               activeTab === 'COMPANIES' ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -369,13 +413,26 @@ export default function MasterDashboard() {
 
           <button
             onClick={() => setActiveTab('APPROVALS')}
-            className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 py-3 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
               activeTab === 'APPROVALS' ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
             }`}
           >
-            <Users size={15} /> Fila de Aprovação
+            <Users size={15} /> Aprovações
             {pendingUsers.length > 0 && (
               <span className="bg-amber-500 text-slate-950 px-1.5 rounded-full text-[10px] ml-1">{pendingUsers.length}</span>
+            )}
+          </button>
+
+          {/* NOVA ABA: USUÁRIOS SEM EMPRESA */}
+          <button
+            onClick={() => setActiveTab('UNLINKED')}
+            className={`flex-1 py-3 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              activeTab === 'UNLINKED' ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <UserX size={15} /> Sem Empresa
+            {unlinkedUsers.length > 0 && (
+              <span className="bg-blue-500 text-white px-1.5 rounded-full text-[10px] ml-1">{unlinkedUsers.length}</span>
             )}
           </button>
         </div>
@@ -578,7 +635,7 @@ export default function MasterDashboard() {
           </div>
         )}
 
-        {/* ABA 3: FILA DE APROVAÇÃO (COM BOTÃO DE EXCLUIR) */}
+        {/* ABA 3: FILA DE APROVAÇÃO */}
         {activeTab === 'APPROVALS' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
             <div>
@@ -637,6 +694,126 @@ export default function MasterDashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* ABA 4: USUÁRIOS SEM EMPRESA VINCULADA (AVULSOS) */}
+        {/* ========================================================================= */}
+        {activeTab === 'UNLINKED' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <UserX size={18} className="text-blue-400" /> Usuários Sem Empresa Vinculada ({unlinkedUsers.length})
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Técnicos que possuem cadastro no DDS ON mas não foram vinculados a nenhuma empresa cliente no banco de dados.
+                </p>
+              </div>
+            </div>
+
+            {unlinkedUsers.length === 0 ? (
+              <div className="text-center py-16 text-slate-500 space-y-2">
+                <CheckCircle2 size={36} className="mx-auto opacity-30 text-blue-500" />
+                <p className="text-sm font-semibold text-slate-300">Tudo Organizado!</p>
+                <p className="text-xs">Todos os usuários cadastrados estão vinculados a empresas oficiais.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400">
+                      <th className="pb-3 font-semibold">Técnico / Usuário</th>
+                      <th className="pb-3 font-semibold">Empresa Informada (Texto)</th>
+                      <th className="pb-3 font-semibold">Status</th>
+                      <th className="pb-3 font-semibold">DDSs Criados</th>
+                      <th className="pb-3 font-semibold">Vincular a Empresa Oficial</th>
+                      <th className="pb-3 font-semibold text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {unlinkedUsers.map((user) => (
+                      <tr key={user.id} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="py-4">
+                          <p className="font-bold text-white text-sm">{user.name}</p>
+                          <p className="text-[11px] text-slate-500">{user.email} • {user.position || 'Técnico'}</p>
+                          <span className="text-[10px] text-slate-600">
+                            Cadastrado em {new Date(user.createdAt).toLocaleDateString('pt-BR')}
+                          </span>
+                        </td>
+
+                        <td className="py-4">
+                          <span className="bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800 text-amber-400 font-semibold">
+                            {user.company || 'Não informado'}
+                          </span>
+                        </td>
+
+                        <td className="py-4">
+                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                            user.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                            user.status === 'PENDING_APPROVAL' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                            'bg-red-500/20 text-red-400 border border-red-500/30'
+                          }`}>
+                            {user.status === 'ACTIVE' ? '🟢 ATIVO' :
+                             user.status === 'PENDING_APPROVAL' ? '🟡 PENDENTE' : '🔴 BLOQUEADO'}
+                          </span>
+                        </td>
+
+                        <td className="py-4 font-bold text-slate-300">
+                          {user._count?.meetings || 0} reuniões
+                        </td>
+
+                        {/* SELECT PARA VINCULAR A UMA EMPRESA */}
+                        <td className="py-4">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={selectedCompanyForUser[user.id] || ''}
+                              onChange={(e) => setSelectedCompanyForUser({
+                                ...selectedCompanyForUser,
+                                [user.id]: e.target.value
+                              })}
+                              className="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-green-500 max-w-[200px]"
+                            >
+                              <option value="">Selecione uma empresa...</option>
+                              {companies.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              onClick={() => handleLinkUserToCompany(user.id)}
+                              disabled={!selectedCompanyForUser[user.id]}
+                              className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 transition-all ${
+                                selectedCompanyForUser[user.id]
+                                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 text-white shadow-md cursor-pointer'
+                                  : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700/50'
+                              }`}
+                              title="Vincular usuário à empresa selecionada"
+                            >
+                              <Link2 size={13} /> Vincular
+                            </button>
+                          </div>
+                        </td>
+
+                        {/* BOTÃO EXCLUIR */}
+                        <td className="py-4 text-right">
+                          <button
+                            onClick={() => handleDeleteUser(user.id, user.name)}
+                            className="p-2 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white rounded-xl transition-all border border-red-500/30"
+                            title="Excluir este usuário"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
