@@ -42,7 +42,6 @@ export async function GET() {
       orderBy: { createdAt: 'desc' }
     });
 
-    // BUSCA USUÁRIOS AVULSOS (SEM VÍNCULO COM EMPRESA)
     const unlinkedUsers = await prisma.user.findMany({
       where: {
         companyId: null,
@@ -106,7 +105,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json();
-    const { action, companyId, newStatus, userId } = body;
+    const { action, companyId, newStatus, userId, targetCompanyId } = body;
 
     if (action === 'update_company_status') {
       const updated = await prisma.company.update({
@@ -124,11 +123,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, user: updated });
     }
 
-    // =========================================================================
-    // VINCULAR USUÁRIO AVULSO A UMA EMPRESA EXISTENTE
-    // =========================================================================
     if (action === 'link_user_company') {
-      const { targetCompanyId } = body;
       const targetCompany = await prisma.company.findUnique({
         where: { id: targetCompanyId }
       });
@@ -142,25 +137,39 @@ export async function PATCH(req: Request) {
         data: {
           companyId: targetCompany.id,
           company: targetCompany.name,
-          status: 'ACTIVE' // Ativa o usuário automaticamente ao ser formalmente vinculado
+          status: 'ACTIVE'
         }
       });
 
       return NextResponse.json({ success: true, user: updated });
     }
 
-    // EXCLUSÃO DE USUÁRIO
+    // EXCLUSÃO TOTAL E DEFINITIVA EM CASCATA
     if (action === 'delete_user') {
-      await prisma.meeting.updateMany({
+      // 1. Busca todos os DDSs criados por esse usuário
+      const userMeetings = await prisma.meeting.findMany({
         where: { organizerId: userId },
-        data: { organizerId: null }
+        select: { id: true }
       });
+      const meetingIds = userMeetings.map(m => m.id);
 
+      if (meetingIds.length > 0) {
+        // 2. Apaga todas as presenças, fotos e assinaturas dessas reuniões
+        await prisma.attendance.deleteMany({
+          where: { meetingId: { in: meetingIds } }
+        });
+        // 3. Apaga as reuniões
+        await prisma.meeting.deleteMany({
+          where: { id: { in: meetingIds } }
+        });
+      }
+
+      // 4. Apaga a conta do usuário
       await prisma.user.delete({
         where: { id: userId }
       });
 
-      return NextResponse.json({ success: true, message: 'Usuário excluído com sucesso.' });
+      return NextResponse.json({ success: true, message: 'Usuário e todos os seus registros foram excluídos definitivamente do banco de dados.' });
     }
 
     return NextResponse.json({ success: false, error: 'Ação inválida.' }, { status: 400 });
@@ -169,6 +178,7 @@ export async function PATCH(req: Request) {
   }
 }
 
+// DELETE Direto com Limpeza Total
 export async function DELETE(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -178,16 +188,26 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ success: false, error: 'ID do usuário não informado.' }, { status: 400 });
     }
 
-    await prisma.meeting.updateMany({
+    const userMeetings = await prisma.meeting.findMany({
       where: { organizerId: userId },
-      data: { organizerId: null }
+      select: { id: true }
     });
+    const meetingIds = userMeetings.map(m => m.id);
+
+    if (meetingIds.length > 0) {
+      await prisma.attendance.deleteMany({
+        where: { meetingId: { in: meetingIds } }
+      });
+      await prisma.meeting.deleteMany({
+        where: { id: { in: meetingIds } }
+      });
+    }
 
     await prisma.user.delete({
       where: { id: userId }
     });
 
-    return NextResponse.json({ success: true, message: 'Usuário excluído com sucesso.' });
+    return NextResponse.json({ success: true, message: 'Usuário e todos os seus dados foram excluídos definitivamente.' });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error?.message }, { status: 500 });
   }
