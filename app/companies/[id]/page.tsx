@@ -1,22 +1,23 @@
- import React from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { 
   Building2, Users, Video, ArrowLeft, KeyRound, 
-  MapPin, ShieldCheck, ExternalLink, Activity
+  MapPin, ShieldCheck, Activity
 } from 'lucide-react';
-import { PrismaClient } from '@prisma/client';
-import CompanyUserTable from './CompanyUserTable'; // Componente de ações do usuário
-
-const prisma = new PrismaClient();
+import prisma from '@/lib/prisma';
+import CompanyUserTable from './CompanyUserTable';
 
 interface PageProps {
   params: Promise<{ id: string }> | { id: string };
 }
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export default async function CompanyDetailPage({ params }: PageProps) {
   const resolvedParams = await Promise.resolve(params);
-  const companyId = resolvedParams.id;
+  const companyId = resolvedParams?.id;
 
   if (!companyId) {
     notFound();
@@ -41,7 +42,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  // 2. Busca reuniões da empresa ou dos técnicos
+  // 2. Busca reuniões da empresa ou dos técnicos vinculados
   const meetings = await prisma.meeting.findMany({
     where: {
       OR: [
@@ -112,14 +113,14 @@ export default async function CompanyDetailPage({ params }: PageProps) {
 
         {/* CARDS DE MÉTRICAS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1">
+          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
               <Users size={15} className="text-blue-400" /> Técnicos Vinculados
             </span>
             <p className="text-3xl font-black text-white">{totalTecnicos}</p>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1">
+          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
               <Video size={15} className="text-emerald-400" /> Total de DDSs
             </span>
@@ -129,15 +130,15 @@ export default async function CompanyDetailPage({ params }: PageProps) {
             </span>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1">
+          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
               <ShieldCheck size={15} className="text-green-400" /> Presenças Auditadas
             </span>
             <p className="text-3xl font-black text-green-400">{totalAssinaturas}</p>
-            <span className="text-[10px] text-slate-500 block">Com biometria facial</span>
+            <span className="text-[10px] text-slate-500 block">Com biometria facial e assinatura</span>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1">
+          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
               <Activity size={15} className="text-amber-400" /> Média por DDS
             </span>
@@ -163,7 +164,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-left text-xs min-w-[700px]">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400">
                   <th className="pb-3 font-semibold">Tema do DDS</th>
@@ -178,7 +179,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
               <tbody className="divide-y divide-slate-800/60">
                 {meetings.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
+                    <td colSpan={7} className="py-12 text-center text-slate-500">
                       Nenhum DDS registrado por esta empresa ou seus técnicos até o momento.
                     </td>
                   </tr>
@@ -213,7 +214,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
                         <span className="font-black text-green-400 text-sm">
                           {meeting._count.attendees}
                         </span>
-                        <span className="text-[10px] text-slate-500 block">presentes</span>
+                        <span className="text-[10px] text-slate-500 block">presentes auditados</span>
                       </td>
                       <td className="py-4">
                         <span className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
@@ -224,7 +225,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
                           {meeting.status === 'LIVE' ? 'EM ANDAMENTO' : 'ENCERRADA'}
                         </span>
                       </td>
-                      <td className="py-4 text-right text-slate-400 font-mono">
+                      <td className="py-4 text-right text-slate-400 font-mono text-[11px]">
                         {new Date(meeting.createdAt).toLocaleDateString('pt-BR')}
                       </td>
                     </tr>
@@ -249,7 +250,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
             rel="noopener noreferrer"
             className="text-green-400 hover:text-green-300 font-bold inline-flex items-center gap-1 transition-colors underline underline-offset-2"
           >
-            AM TST <ExternalLink size={10} />
+            AM TST
           </a>
         </div>
       </footer>

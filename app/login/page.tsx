@@ -1,7 +1,7 @@
- 'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Lock, Mail, ArrowRight, KeyRound, ExternalLink, ShieldCheck, Loader2, Eye, EyeOff } from 'lucide-react';
+import { Lock, Mail, ArrowRight, KeyRound, ExternalLink, ShieldCheck, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export default function MasterLoginPage() {
@@ -13,20 +13,24 @@ export default function MasterLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Credenciais Mestras Oficiais
-  const MASTER_EMAIL = 'alexandre@amtst.com.br';
-  const MASTER_PASSWORD = 'AMTST#Master2026';
-  const MASTER_KEY = 'AM2026';
-
   useEffect(() => {
-    const session = localStorage.getItem('dds_master_session');
-    if (session) {
-      router.push('/');
+    try {
+      const sessionStr = localStorage.getItem('dds_master_session');
+      if (sessionStr) {
+        const session = JSON.parse(sessionStr);
+        if (session && session.role === 'SUPER_ADMIN_MASTER') {
+          router.push('/');
+        }
+      }
+    } catch {
+      localStorage.removeItem('dds_master_session');
     }
   }, [router]);
 
-  const handleMasterLogin = (e: React.FormEvent) => {
+  const handleMasterLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+
     setLoading(true);
     setError('');
 
@@ -34,23 +38,29 @@ export default function MasterLoginPage() {
     const cleanPassword = String(password || '').trim();
     const cleanKey = String(masterKey || '').toUpperCase().trim();
 
-    const isEmailValid = cleanEmail === MASTER_EMAIL;
-    const isPassValid = cleanPassword === MASTER_PASSWORD;
-    const isKeyValid = !cleanKey || cleanKey === MASTER_KEY;
+    try {
+      const res = await fetch('/api/master/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: cleanEmail,
+          password: cleanPassword,
+          masterKey: cleanKey
+        })
+      });
 
-    if (isEmailValid && isPassValid && isKeyValid) {
-      const session = {
-        id: 'master-owner-01',
-        email: MASTER_EMAIL,
-        name: 'Alexandre Machado',
-        role: 'SUPER_ADMIN_MASTER',
-        authenticatedAt: new Date().toISOString()
-      };
+      const data = await res.json().catch(() => ({ success: false, error: 'Resposta inválida do servidor.' }));
 
-      localStorage.setItem('dds_master_session', JSON.stringify(session));
-      router.push('/');
-    } else {
-      setError('Credenciais mestras incorretas. Verifique os dados informados.');
+      if (res.ok && data.success && data.session) {
+        localStorage.setItem('dds_master_session', JSON.stringify(data.session));
+        router.push('/');
+      } else {
+        setError(data.error || 'Credenciais mestras incorretas. Verifique os dados informados.');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Não foi possível conectar ao servidor de autenticação. Verifique sua conexão.');
+    } finally {
       setLoading(false);
     }
   };
@@ -73,8 +83,9 @@ export default function MasterLoginPage() {
         </div>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-3.5 rounded-xl text-center font-medium">
-            {error}
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-3.5 rounded-xl flex items-start gap-2.5 font-medium animate-in fade-in duration-200">
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
+            <span>{error}</span>
           </div>
         )}
 
@@ -86,10 +97,11 @@ export default function MasterLoginPage() {
               <input
                 type="email"
                 required
+                disabled={loading}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Digite seu e-mail mestre"
-                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl px-10 py-3 text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all"
+                placeholder="alexandre@amtst.com.br"
+                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl px-10 py-3 text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all disabled:opacity-50"
               />
             </div>
           </div>
@@ -101,10 +113,11 @@ export default function MasterLoginPage() {
               <input
                 type={showPassword ? 'text' : 'password'}
                 required
+                disabled={loading}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Digite sua senha mestra"
-                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl pl-10 pr-11 py-3 text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all"
+                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl pl-10 pr-11 py-3 text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all disabled:opacity-50"
               />
               <button
                 type="button"
@@ -118,15 +131,18 @@ export default function MasterLoginPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Chave de Segurança</label>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+              Chave de Segurança Mestre <span className="text-slate-500 font-normal">(Opcional)</span>
+            </label>
             <div className="relative flex items-center">
               <KeyRound className="absolute left-3.5 text-slate-500" size={17} />
               <input
                 type="text"
+                disabled={loading}
                 value={masterKey}
                 onChange={(e) => setMasterKey(e.target.value)}
-                placeholder="Digite a chave de segurança"
-                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl px-10 py-3 text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all uppercase font-mono"
+                placeholder="AM2026"
+                className="w-full bg-slate-950/70 border border-slate-800 rounded-xl px-10 py-3 text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all uppercase font-mono disabled:opacity-50"
               />
             </div>
           </div>
@@ -134,11 +150,11 @@ export default function MasterLoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 active:scale-[0.99] text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-green-600/25 mt-2"
+            className="w-full py-3.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 active:scale-[0.99] text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-green-600/25 mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? (
               <>
-                <Loader2 size={16} className="animate-spin" /> Entrando...
+                <Loader2 size={16} className="animate-spin" /> Validando Credenciais...
               </>
             ) : (
               <>

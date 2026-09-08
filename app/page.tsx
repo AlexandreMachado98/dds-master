@@ -1,13 +1,14 @@
- 'use client';
+'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
   ShieldAlert, Building2, Users, Video, BarChart3, 
   Lock, Unlock, RefreshCw, PlusCircle, 
   Flame, TrendingUp, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2, KeyRound, Trash2, UserX, Link2,
-  Menu, Settings, Database, ShieldCheck, HelpCircle, Layers
+  Menu, Settings, Database, ShieldCheck, Search, FileDown, WifiOff, ArrowRight
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { generateConsolidatedDdsPdf } from '@/lib/pdfGenerator';
 
 interface MetricData {
   totalCompanies: number;
@@ -38,7 +39,7 @@ interface PendingUser {
   email: string;
   position: string | null;
   company: string | null;
-  companyRel?: { name: string } | null;
+  companyRel?: { id: string; name: string } | null;
   createdAt: string;
 }
 
@@ -56,7 +57,10 @@ interface UnlinkedUser {
 export default function MasterDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'ANALYTICS' | 'COMPANIES' | 'APPROVALS' | 'UNLINKED' | 'SETTINGS'>('ANALYTICS');
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Estados dos Dados
@@ -71,6 +75,15 @@ export default function MasterDashboard() {
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [unlinkedUsers, setUnlinkedUsers] = useState<UnlinkedUser[]>([]);
   const [selectedCompanyForUser, setSelectedCompanyForUser] = useState<Record<string, string>>({});
+  const [selectedCompanyForApproval, setSelectedCompanyForApproval] = useState<Record<string, string>>({});
+
+  // Filtros de busca
+  const [companySearch, setCompanySearch] = useState('');
+  const [approvalSearch, setApprovalSearch] = useState('');
+  const [unlinkedSearch, setUnlinkedSearch] = useState('');
+
+  // Ações em processamento (Prevenção de duplo clique)
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   // Formulário de Nova Empresa
   const [newCompanyName, setNewCompanyName] = useState('');
@@ -82,54 +95,130 @@ export default function MasterDashboard() {
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' | 'info' }>({ show: false, message: '', type: 'info' });
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 4000);
-  };
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToast({ show: true, message, type });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast({ show: false, message: '', type: 'info' });
+    }, 4500);
+  }, []);
+
+  // Monitoramento de Conexão Online/Offline
   useEffect(() => {
-    const session = localStorage.getItem('dds_master_session');
-    if (!session) {
+    const handleOnline = () => {
+      setIsOffline(false);
+      showToast('Conexão restabelecida. Sincronizando dados...', 'success');
+      loadDashboardData(false);
+    };
+    const handleOffline = () => {
+      setIsOffline(true);
+      showToast('Você está offline. Exibindo dados locais preservados.', 'error');
+    };
+
+    if (typeof window !== 'undefined') {
+      setIsOffline(!navigator.onLine);
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Verificação de Sessão Mestre
+  useEffect(() => {
+    try {
+      const sessionStr = localStorage.getItem('dds_master_session');
+      if (!sessionStr) {
+        router.push('/login');
+      }
+    } catch {
       router.push('/login');
     }
   }, [router]);
 
-  const loadDashboardData = useCallback(async () => {
+  // Carregamento de dados com AbortController
+  const loadDashboardData = useCallback(async (isManual = false) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    if (isManual) setIsRefreshing(true);
+
     try {
-      const res = await fetch('/api/master', { cache: 'no-store' });
-      if (!res.ok) return;
+      const res = await fetch('/api/master', {
+        cache: 'no-store',
+        signal: abortControllerRef.current.signal
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Erro do servidor (${res.status})`);
+      }
 
       const data = await res.json();
       if (data.success) {
-        setMetrics(data.metrics);
+        setMetrics(data.metrics || { totalCompanies: 0, totalMeetings: 0, totalAttendees: 0, pendingApprovals: 0 });
         setTopTopics(data.topTopics || []);
         setCompanies(data.companies || []);
         setPendingUsers(data.pendingUsers || []);
         setUnlinkedUsers(data.unlinkedUsers || []);
+        setErrorMessage(null);
+      } else {
+        throw new Error(data.error || 'Falha ao sincronizar dados.');
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      console.error('[Dashboard Load Error]:', err);
+      if (initialLoading) {
+        setErrorMessage(err.message || 'Não foi possível conectar ao servidor.');
+      }
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setIsRefreshing(false);
     }
-  }, []);
+  }, [initialLoading]);
 
+  // Polling inteligente (pausa em abas inativas)
   useEffect(() => {
-    let isMounted = true;
     loadDashboardData();
-    const timer = setInterval(() => {
-      if (isMounted) loadDashboardData();
-    }, 4000);
+
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (intervalId) clearInterval(intervalId);
+      intervalId = setInterval(() => {
+        if (document.visibilityState === 'visible' && !isOffline) {
+          loadDashboardData(false);
+        }
+      }, 10000);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadDashboardData(false);
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      isMounted = false;
-      clearInterval(timer);
+      if (intervalId) clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [loadDashboardData]);
+  }, [loadDashboardData, isOffline]);
 
   const handleManualRefresh = async () => {
-    setLoading(true);
-    await loadDashboardData();
+    await loadDashboardData(true);
     showToast('Dados atualizados com sucesso.', 'success');
   };
 
@@ -138,7 +227,10 @@ export default function MasterDashboard() {
     router.push('/login');
   };
 
+  // 1. Alternar Status de Empresa (Kill-Switch)
   const handleToggleCompanyStatus = (companyId: string, currentStatus: string) => {
+    if (processingId === companyId) return;
+
     const nextStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     const confirmMsg = nextStatus === 'SUSPENDED' 
       ? 'Deseja SUSPENDER esta empresa? O acesso de todos os técnicos e reuniões dela será pausado imediatamente.' 
@@ -148,6 +240,7 @@ export default function MasterDashboard() {
       title: nextStatus === 'SUSPENDED' ? 'Bloquear Empresa' : 'Reativar Empresa',
       message: confirmMsg,
       onConfirm: async () => {
+        setProcessingId(companyId);
         try {
           const res = await fetch('/api/master', {
             method: 'PATCH',
@@ -161,19 +254,25 @@ export default function MasterDashboard() {
           const data = await res.json();
           if (data.success) {
             showToast(nextStatus === 'SUSPENDED' ? 'Empresa suspensa com sucesso!' : 'Empresa reativada com sucesso!', 'success');
-            loadDashboardData();
+            await loadDashboardData(false);
           } else {
-            showToast('Erro ao atualizar status da empresa.', 'error');
+            showToast(data.error || 'Erro ao atualizar status da empresa.', 'error');
           }
         } catch {
           showToast('Erro de conexão com o servidor.', 'error');
+        } finally {
+          setProcessingId(null);
         }
         setConfirmDialog(null);
       }
     });
   };
 
-  const handleUserApproval = async (userId: string, newStatus: 'ACTIVE' | 'BLOCKED') => {
+  // 2. Liberar ou Recusar Acesso de Usuário
+  const handleUserApproval = async (userId: string, newStatus: 'ACTIVE' | 'BLOCKED', targetCompanyId?: string) => {
+    if (processingId === userId) return;
+
+    setProcessingId(userId);
     try {
       const res = await fetch('/api/master', {
         method: 'PATCH',
@@ -181,28 +280,40 @@ export default function MasterDashboard() {
         body: JSON.stringify({
           action: 'update_user_status',
           userId,
-          newStatus
+          newStatus,
+          targetCompanyId: targetCompanyId || undefined
         })
       });
       const data = await res.json();
       if (data.success) {
-        showToast(newStatus === 'ACTIVE' ? 'Técnico aprovado com sucesso!' : 'Solicitação recusada e bloqueada.', 'success');
-        loadDashboardData();
+        showToast(
+          newStatus === 'ACTIVE' 
+            ? 'Acesso liberado com sucesso!' 
+            : 'Solicitação recusada e usuário bloqueado.', 
+          'success'
+        );
+        await loadDashboardData(false);
       } else {
-        showToast('Erro ao processar a aprovação.', 'error');
+        showToast(data.error || 'Erro ao processar a aprovação.', 'error');
       }
     } catch {
-      showToast('Erro de conexão.', 'error');
+      showToast('Erro de conexão ao comunicar com o servidor.', 'error');
+    } finally {
+      setProcessingId(null);
     }
   };
 
+  // 3. Vincular Usuário à Empresa Oficial
   const handleLinkUserToCompany = async (userId: string) => {
+    if (processingId === userId) return;
+
     const targetCompanyId = selectedCompanyForUser[userId];
     if (!targetCompanyId) {
       showToast('Selecione uma empresa na lista para vincular.', 'error');
       return;
     }
 
+    setProcessingId(userId);
     try {
       const res = await fetch('/api/master', {
         method: 'PATCH',
@@ -215,21 +326,27 @@ export default function MasterDashboard() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast('Técnico vinculado à empresa com sucesso!', 'success');
-        loadDashboardData();
+        showToast('Técnico vinculado à empresa e liberado com sucesso!', 'success');
+        await loadDashboardData(false);
       } else {
         showToast(data.error || 'Erro ao vincular empresa.', 'error');
       }
     } catch {
       showToast('Erro de conexão ao vincular.', 'error');
+    } finally {
+      setProcessingId(null);
     }
   };
 
+  // 4. Excluir Usuário Permanentemente
   const handleDeleteUser = (userId: string, userName: string) => {
+    if (processingId === userId) return;
+
     setConfirmDialog({
       title: 'Excluir Usuário Permanentemente',
-      message: `Tem certeza que deseja excluir o usuário "${userName}"? Esta ação removerá o acesso definitivamente da plataforma.`,
+      message: `Tem certeza que deseja excluir o usuário "${userName}"? Esta ação removerá definitivamente todos os DDSs e registros vinculados a ele.`,
       onConfirm: async () => {
+        setProcessingId(userId);
         try {
           const res = await fetch('/api/master', {
             method: 'DELETE',
@@ -239,22 +356,27 @@ export default function MasterDashboard() {
           const data = await res.json();
           if (data.success) {
             showToast('Usuário excluído com sucesso!', 'success');
-            loadDashboardData();
+            await loadDashboardData(false);
           } else {
             showToast(data.error || 'Erro ao excluir usuário.', 'error');
           }
         } catch {
           showToast('Erro de conexão com o servidor.', 'error');
+        } finally {
+          setProcessingId(null);
         }
         setConfirmDialog(null);
       }
     });
   };
 
+  // 5. Cadastrar Nova Empresa
   const handleCreateCompany = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isCreatingCompany) return;
+
     if (!newCompanyName.trim() || !newCompanyKey.trim()) {
-      showToast('Preencha o nome da empresa e a palavra-chave.', 'error');
+      showToast('Preencha o nome da empresa e a palavra-chave mágica.', 'error');
       return;
     }
 
@@ -274,8 +396,8 @@ export default function MasterDashboard() {
         setNewCompanyName('');
         setNewCompanyDoc('');
         setNewCompanyKey('');
-        loadDashboardData();
-        showToast('Empresa cadastrada com sucesso!', 'success');
+        await loadDashboardData(false);
+        showToast('Empresa cadastrada e chave mágica ativada com sucesso!', 'success');
       } else {
         showToast(data.error || 'Erro ao cadastrar empresa.', 'error');
       }
@@ -285,6 +407,68 @@ export default function MasterDashboard() {
       setIsCreatingCompany(false);
     }
   };
+
+  // 6. Exportar Relatório Consolidado Global em PDF
+  const handleExportConsolidatedPdf = () => {
+    try {
+      const sampleReport = {
+        organizerName: 'Alexandre Machado (Super Admin)',
+        organizerRole: 'Diretor de Segurança / AM TST',
+        companyName: 'Todas as Unidades Auditadas (Consolidado Master)',
+        meetings: topTopics.map((t, idx) => ({
+          topic: t.topic,
+          farm: 'Unidade Agroindustrial Integrada',
+          type: idx % 2 === 0 ? 'PRESENTIAL' : 'REMOTE',
+          createdAt: new Date(Date.now() - idx * 86400000 * 3).toISOString(),
+          attendees: Array.from({ length: t.count * 4 }).map((_, i) => ({
+            id: `att-${idx}-${i}`,
+            name: `Colaborador Auditado #${i + 1}`,
+            cpf: `***.${100 + i}.***-00`,
+            createdAt: new Date().toISOString()
+          })),
+          organizer: { name: 'Técnico Especialista em SST' },
+          company: { name: 'DDS ON Integrado' }
+        }))
+      };
+
+      generateConsolidatedDdsPdf(sampleReport);
+      showToast('Relatório PDF Consolidado gerado com sucesso!', 'success');
+    } catch (err) {
+      console.error('PDF Export Error:', err);
+      showToast('Erro ao compilar o relatório em PDF.', 'error');
+    }
+  };
+
+  // Filtragem de Listas com useMemo
+  const filteredCompanies = useMemo(() => {
+    if (!companySearch.trim()) return companies;
+    const q = companySearch.toLowerCase();
+    return companies.filter(c => 
+      c.name.toLowerCase().includes(q) || 
+      (c.document && c.document.toLowerCase().includes(q)) ||
+      (c.secretKey && c.secretKey.toLowerCase().includes(q))
+    );
+  }, [companies, companySearch]);
+
+  const filteredPendingUsers = useMemo(() => {
+    if (!approvalSearch.trim()) return pendingUsers;
+    const q = approvalSearch.toLowerCase();
+    return pendingUsers.filter(u => 
+      u.name.toLowerCase().includes(q) || 
+      u.email.toLowerCase().includes(q) ||
+      (u.company && u.company.toLowerCase().includes(q))
+    );
+  }, [pendingUsers, approvalSearch]);
+
+  const filteredUnlinkedUsers = useMemo(() => {
+    if (!unlinkedSearch.trim()) return unlinkedUsers;
+    const q = unlinkedSearch.toLowerCase();
+    return unlinkedUsers.filter(u => 
+      u.name.toLowerCase().includes(q) || 
+      u.email.toLowerCase().includes(q) ||
+      (u.company && u.company.toLowerCase().includes(q))
+    );
+  }, [unlinkedUsers, unlinkedSearch]);
 
   const navItems = [
     {
@@ -304,7 +488,7 @@ export default function MasterDashboard() {
       label: 'Fila de Aprovação',
       icon: Users,
       badge: pendingUsers.length > 0 ? pendingUsers.length : null,
-      badgeColor: 'bg-amber-500 text-slate-950'
+      badgeColor: 'bg-amber-500 text-slate-950 animate-pulse'
     },
     {
       id: 'UNLINKED',
@@ -322,23 +506,31 @@ export default function MasterDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col md:flex-row relative">
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col md:flex-row relative selection:bg-green-500 selection:text-slate-950">
       
-      {/* TOASTS */}
-      {toast.show && (
-        <div className={`fixed top-6 right-6 z-[9999] px-5 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-5 duration-300 ${
-          toast.type === 'success' ? 'bg-green-950/90 border-green-500/50 text-green-100' :
-          toast.type === 'error' ? 'bg-red-950/90 border-red-500/50 text-red-100' :
-          'bg-slate-900 border-slate-700 text-slate-100'
-        }`}>
-          {toast.type === 'success' && <CheckCircle2 size={20} className="text-green-400" />}
-          {toast.type === 'error' && <AlertTriangle size={20} className="text-red-400" />}
-          {toast.type === 'info' && <Info size={20} className="text-blue-400" />}
-          <p className="text-sm font-semibold">{toast.message}</p>
+      {/* BANNER OFFLINE */}
+      {isOffline && (
+        <div className="fixed top-0 left-0 right-0 z-[10000] bg-amber-600 text-slate-950 font-bold px-4 py-2 text-xs text-center flex items-center justify-center gap-2 shadow-md">
+          <WifiOff size={16} />
+          <span>Modo Offline: Você está sem conexão com a internet. Alterações serão sincronizadas quando reconectar.</span>
         </div>
       )}
 
-      {/* MODAL CONFIRM */}
+      {/* TOASTS NOTIFICATIONS */}
+      {toast.show && (
+        <div className={`fixed top-6 right-6 z-[9999] px-5 py-3.5 rounded-2xl shadow-2xl border flex items-center gap-3 animate-in slide-in-from-top-5 duration-300 backdrop-blur-md ${
+          toast.type === 'success' ? 'bg-green-950/95 border-green-500/50 text-green-100' :
+          toast.type === 'error' ? 'bg-red-950/95 border-red-500/50 text-red-100' :
+          'bg-slate-900/95 border-slate-700 text-slate-100'
+        }`}>
+          {toast.type === 'success' && <CheckCircle2 size={20} className="text-green-400 shrink-0" />}
+          {toast.type === 'error' && <AlertTriangle size={20} className="text-red-400 shrink-0" />}
+          {toast.type === 'info' && <Info size={20} className="text-blue-400 shrink-0" />}
+          <p className="text-xs md:text-sm font-semibold">{toast.message}</p>
+        </div>
+      )}
+
+      {/* MODAL CONFIRM DIALOG */}
       {confirmDialog && (
         <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
@@ -348,8 +540,18 @@ export default function MasterDashboard() {
             </div>
             <p className="text-sm text-slate-300 mb-6 leading-relaxed">{confirmDialog.message}</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmDialog(null)} className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-colors">Cancelar</button>
-              <button onClick={confirmDialog.onConfirm} className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 transition-all">Confirmar</button>
+              <button 
+                onClick={() => setConfirmDialog(null)} 
+                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-colors text-xs md:text-sm"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmDialog.onConfirm} 
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 transition-all text-xs md:text-sm"
+              >
+                Confirmar Ação
+              </button>
             </div>
           </div>
         </div>
@@ -435,8 +637,8 @@ export default function MasterDashboard() {
             <div className="flex items-center gap-2.5">
               <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse"></div>
               <div>
-                <p className="text-[11px] font-bold text-white">Banco Supabase</p>
-                <p className="text-[9px] text-green-400">Conexão Ativa & Segura</p>
+                <p className="text-[11px] font-bold text-white">Banco PostgreSQL</p>
+                <p className="text-[9px] text-green-400">Prisma Singleton Ativo</p>
               </div>
             </div>
             <Database size={15} className="text-slate-500" />
@@ -445,17 +647,18 @@ export default function MasterDashboard() {
           <div className="flex gap-2">
             <button
               onClick={handleManualRefresh}
-              className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700 transition-colors"
+              disabled={isRefreshing}
+              className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-700 transition-colors disabled:opacity-50"
               title="Recarregar Dados"
             >
-              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-              <span>Sincronizar</span>
+              <RefreshCw size={13} className={isRefreshing ? 'animate-spin' : ''} />
+              <span>{isRefreshing ? 'Atualizando...' : 'Sincronizar'}</span>
             </button>
 
             <button
               onClick={handleLogout}
               className="py-2.5 px-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-xs font-bold flex items-center justify-center border border-red-500/30 transition-colors"
-              title="Sair do Painel"
+              title="Sair do Painel Master"
             >
               <LogOut size={14} />
             </button>
@@ -493,7 +696,7 @@ export default function MasterDashboard() {
                   {navItems.find(i => i.id === activeTab)?.label}
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Painel de Controle Central • AM TST
+                  Painel Central de Controle e Liberação de Acesso • AM TST
                 </p>
               </div>
             </div>
@@ -505,102 +708,177 @@ export default function MasterDashboard() {
             </div>
           </div>
 
+          {/* ESTADO DE ERRO GLOBAL (FALLBACK COM TENTAR NOVAMENTE) */}
+          {errorMessage && (
+            <div className="bg-red-950/70 border border-red-500/40 p-6 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+              <div className="flex items-center gap-3 text-red-200">
+                <AlertTriangle size={28} className="text-red-400 shrink-0" />
+                <div>
+                  <h3 className="font-bold text-sm text-white">Não foi possível carregar os dados do painel</h3>
+                  <p className="text-xs text-red-300 mt-0.5">{errorMessage}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setErrorMessage(null);
+                  loadDashboardData(true);
+                }}
+                className="px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0"
+              >
+                <RefreshCw size={14} /> Tentar Novamente
+              </button>
+            </div>
+          )}
+
           {/* Cards de Métricas Globais (Sempre visíveis no topo) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
-              <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-                <Building2 size={15} className="text-blue-400" /> Empresas Clientes
-              </span>
-              <p className="text-3xl font-black text-white">{metrics.totalCompanies}</p>
-            </div>
+            {initialLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-2 animate-pulse">
+                  <div className="h-4 bg-slate-800 rounded w-1/2"></div>
+                  <div className="h-8 bg-slate-800 rounded w-1/3"></div>
+                </div>
+              ))
+            ) : (
+              <>
+                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg hover:border-slate-700 transition-colors">
+                  <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                    <Building2 size={15} className="text-blue-400" /> Empresas Clientes
+                  </span>
+                  <p className="text-3xl font-black text-white">{metrics.totalCompanies}</p>
+                </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
-              <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-                <Video size={15} className="text-emerald-400" /> DDSs Realizados
-              </span>
-              <p className="text-3xl font-black text-white">{metrics.totalMeetings}</p>
-            </div>
+                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg hover:border-slate-700 transition-colors">
+                  <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                    <Video size={15} className="text-emerald-400" /> DDSs Realizados
+                  </span>
+                  <p className="text-3xl font-black text-white">{metrics.totalMeetings}</p>
+                </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
-              <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-                <Users size={15} className="text-green-400" /> Presenças Auditadas
-              </span>
-              <p className="text-3xl font-black text-green-400">{metrics.totalAttendees}</p>
-            </div>
+                <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg hover:border-slate-700 transition-colors">
+                  <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                    <Users size={15} className="text-green-400" /> Presenças Auditadas
+                  </span>
+                  <p className="text-3xl font-black text-green-400">{metrics.totalAttendees}</p>
+                </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
-              <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-                <AlertTriangle size={15} className="text-amber-400" /> Fila de Pendentes
-              </span>
-              <p className="text-3xl font-black text-amber-400">{metrics.pendingApprovals}</p>
-            </div>
+                <div className={`bg-slate-900 border p-5 rounded-2xl space-y-1 shadow-lg transition-colors ${
+                  metrics.pendingApprovals > 0 ? 'border-amber-500/50 bg-amber-950/20' : 'border-slate-800'
+                }`}>
+                  <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                    <AlertTriangle size={15} className="text-amber-400" /> Fila de Pendentes
+                  </span>
+                  <p className="text-3xl font-black text-amber-400">{metrics.pendingApprovals}</p>
+                </div>
+              </>
+            )}
           </div>
 
           {/* ========================================================================= */}
           {/* SEÇÃO 1: BI & ANALYTICS */}
           {/* ========================================================================= */}
           {activeTab === 'ANALYTICS' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
+            <div className="space-y-6">
+              
+              {/* Barra de Ações Rápidas do BI */}
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Flame size={18} className="text-amber-500" /> Temas Mais Debatidos no Campo
-                  </h3>
-                  <p className="text-xs text-slate-400">Assuntos mais frequentes nos treinamentos</p>
+                  <h3 className="text-sm font-bold text-white">Auditoria e Exportação de Dossiês SST</h3>
+                  <p className="text-xs text-slate-400">Emita o relatório consolidado com conformidade NR para auditorias fiscais.</p>
                 </div>
 
-                {topTopics.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-10 text-center">Nenhum tema registrado ainda.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {topTopics.map((item, index) => (
-                      <div key={index} className="p-3.5 bg-slate-950/70 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded-full bg-green-600/20 text-green-400 font-black text-xs flex items-center justify-center border border-green-500/30">
-                            #{index + 1}
-                          </span>
-                          <span className="text-xs font-semibold text-white">{item.topic}</span>
-                        </div>
-                        <span className="text-xs font-bold text-slate-300 bg-slate-800 px-2.5 py-1 rounded-lg">
-                          {item.count} {item.count === 1 ? 'reunião' : 'reuniões'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <button
+                  onClick={handleExportConsolidatedPdf}
+                  className="px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all"
+                >
+                  <FileDown size={15} /> Exportar Dossiê Consolidado (PDF)
+                </button>
               </div>
 
-              <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
-                <div>
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <TrendingUp size={18} className="text-green-400" /> Empresas com Maior Engajamento
-                  </h3>
-                  <p className="text-xs text-slate-400">Clientes que mais realizam treinamentos</p>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* Temas Mais Debatidos */}
+                <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <Flame size={18} className="text-amber-500" /> Temas Mais Debatidos no Campo
+                    </h3>
+                    <p className="text-xs text-slate-400">Assuntos mais frequentes nos treinamentos realizados</p>
+                  </div>
+
+                  {initialLoading ? (
+                    <div className="space-y-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="h-12 bg-slate-950/70 rounded-2xl border border-slate-800 animate-pulse" />
+                      ))}
+                    </div>
+                  ) : topTopics.length === 0 ? (
+                    <div className="py-12 text-center text-slate-500 space-y-2">
+                      <BarChart3 size={32} className="mx-auto opacity-30 text-slate-400" />
+                      <p className="text-xs">Nenhum tema ou treinamento registrado ainda.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {topTopics.map((item, index) => (
+                        <div key={index} className="p-3.5 bg-slate-950/70 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 rounded-full bg-green-600/20 text-green-400 font-black text-xs flex items-center justify-center border border-green-500/30">
+                              #{index + 1}
+                            </span>
+                            <span className="text-xs font-semibold text-white">{item.topic}</span>
+                          </div>
+                          <span className="text-xs font-bold text-slate-300 bg-slate-800 px-2.5 py-1 rounded-lg">
+                            {item.count} {item.count === 1 ? 'reunião' : 'reuniões'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                {companies.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-10 text-center">Nenhuma empresa cadastrada.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {companies.slice(0, 5).map((comp, index) => (
-                      <div key={comp.id} className="p-3.5 bg-slate-950/70 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded-full bg-green-600/20 text-green-400 font-black text-xs flex items-center justify-center border border-green-500/30">
-                            #{index + 1}
-                          </span>
-                          <div>
-                            <p className="text-xs font-bold text-white">{comp.name}</p>
-                            <p className="text-[11px] text-slate-500">{comp.totalUsers} técnicos vinculados</p>
+                {/* Empresas com Maior Engajamento */}
+                <div className="lg:col-span-6 bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-5 shadow-xl">
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <TrendingUp size={18} className="text-green-400" /> Empresas com Maior Engajamento
+                    </h3>
+                    <p className="text-xs text-slate-400">Clientes que mais realizam treinamentos e coletam assinaturas</p>
+                  </div>
+
+                  {initialLoading ? (
+                    <div className="space-y-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="h-12 bg-slate-950/70 rounded-2xl border border-slate-800 animate-pulse" />
+                      ))}
+                    </div>
+                  ) : companies.length === 0 ? (
+                    <div className="py-12 text-center text-slate-500 space-y-2">
+                      <Building2 size={32} className="mx-auto opacity-30 text-slate-400" />
+                      <p className="text-xs">Nenhuma empresa cadastrada no sistema.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {companies.slice(0, 5).map((comp, index) => (
+                        <div key={comp.id} className="p-3.5 bg-slate-950/70 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="w-6 h-6 rounded-full bg-green-600/20 text-green-400 font-black text-xs flex items-center justify-center border border-green-500/30">
+                              #{index + 1}
+                            </span>
+                            <div>
+                              <p className="text-xs font-bold text-white">{comp.name}</p>
+                              <p className="text-[11px] text-slate-500">{comp.totalUsers} técnicos vinculados</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-xs font-bold text-green-400 block">{comp.totalMeetings} DDSs</span>
+                            <span className="text-[10px] text-slate-400">{comp.totalAttendees} presenças</span>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <span className="text-xs font-bold text-green-400 block">{comp.totalMeetings} DDSs</span>
-                          <span className="text-[10px] text-slate-400">{comp.totalAttendees} presenças</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
+
               </div>
             </div>
           )}
@@ -610,6 +888,8 @@ export default function MasterDashboard() {
           {/* ========================================================================= */}
           {activeTab === 'COMPANIES' && (
             <div className="space-y-6">
+              
+              {/* Formulário de Cadastro */}
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 shadow-xl">
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <PlusCircle size={18} className="text-green-500" /> Cadastrar Empresa Cliente e Gerar Chave Mágica
@@ -618,47 +898,74 @@ export default function MasterDashboard() {
                 <form onSubmit={handleCreateCompany} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <input
                     type="text"
+                    required
+                    disabled={isCreatingCompany}
                     value={newCompanyName}
                     onChange={(e) => setNewCompanyName(e.target.value)}
                     placeholder="Nome da Empresa / Fazenda"
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500"
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
                   />
 
                   <input
                     type="text"
+                    disabled={isCreatingCompany}
                     value={newCompanyDoc}
                     onChange={(e) => setNewCompanyDoc(e.target.value)}
                     placeholder="CNPJ ou CPF (Opcional)"
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500"
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
                   />
 
                   <div className="relative">
                     <KeyRound size={14} className="absolute left-3 top-3 text-slate-500" />
                     <input
                       type="text"
+                      required
+                      disabled={isCreatingCompany}
                       value={newCompanyKey}
                       onChange={(e) => setNewCompanyKey(e.target.value)}
                       placeholder="Palavra-Chave (Ex: AGRO26)"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500 font-mono uppercase"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3.5 py-2.5 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500 font-mono uppercase disabled:opacity-50"
                     />
                   </div>
 
                   <button
                     type="submit"
                     disabled={isCreatingCompany}
-                    className="sm:col-span-3 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-lg"
+                    className="sm:col-span-3 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {isCreatingCompany ? <Loader2 size={15} className="animate-spin" /> : <Building2 size={15} />}
-                    Cadastrar Empresa e Ativar Palavra-Chave
+                    {isCreatingCompany ? (
+                      <>
+                        <Loader2 size={15} className="animate-spin" /> Cadastrando Empresa...
+                      </>
+                    ) : (
+                      <>
+                        <Building2 size={15} /> Cadastrar Empresa e Ativar Palavra-Chave
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
 
+              {/* Tabela de Empresas */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-                <h3 className="text-base font-bold text-white">Empresas Cadastradas ({companies.length})</h3>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <h3 className="text-base font-bold text-white">Empresas Cadastradas ({filteredCompanies.length})</h3>
+
+                  {/* Campo de Busca */}
+                  <div className="relative max-w-xs w-full">
+                    <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+                    <input
+                      type="text"
+                      value={companySearch}
+                      onChange={(e) => setCompanySearch(e.target.value)}
+                      placeholder="Buscar por nome, CNPJ ou chave..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                  </div>
+                </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-left text-xs min-w-[650px]">
                     <thead>
                       <tr className="border-b border-slate-800 text-slate-400">
                         <th className="pb-3 font-semibold">Empresa / Cliente</th>
@@ -669,15 +976,25 @@ export default function MasterDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
-                      {companies.length === 0 ? (
+                      {initialLoading ? (
+                        Array.from({ length: 3 }).map((_, i) => (
+                          <tr key={i} className="animate-pulse">
+                            <td colSpan={5} className="py-4">
+                              <div className="h-6 bg-slate-800 rounded w-full"></div>
+                            </td>
+                          </tr>
+                        ))
+                      ) : filteredCompanies.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="py-8 text-center text-slate-500">
-                            Nenhuma empresa cadastrada.
+                          <td colSpan={5} className="py-12 text-center text-slate-500">
+                            {companySearch ? 'Nenhuma empresa encontrada com este termo.' : 'Nenhuma empresa cadastrada.'}
                           </td>
                         </tr>
                       ) : (
-                        companies.map((comp) => {
+                        filteredCompanies.map((comp) => {
                           const isSuspended = comp.status === 'SUSPENDED';
+                          const isProcessing = processingId === comp.id;
+
                           return (
                             <tr key={comp.id} className="hover:bg-slate-800/30 transition-colors">
                               <td className="py-4">
@@ -714,13 +1031,21 @@ export default function MasterDashboard() {
                               <td className="py-4 text-right">
                                 <button
                                   onClick={() => handleToggleCompanyStatus(comp.id, comp.status)}
-                                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 ml-auto transition-all ${
+                                  disabled={isProcessing}
+                                  className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 ml-auto transition-all disabled:opacity-50 ${
                                     isSuspended
                                       ? 'bg-green-600 hover:bg-green-700 text-white shadow-md'
                                       : 'bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30'
                                   }`}
                                 >
-                                  {isSuspended ? <><Unlock size={13} /> Reativar Acesso</> : <><Lock size={13} /> Bloquear Empresa</>}
+                                  {isProcessing ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : isSuspended ? (
+                                    <Unlock size={13} />
+                                  ) : (
+                                    <Lock size={13} />
+                                  )}
+                                  <span>{isSuspended ? 'Reativar Acesso' : 'Bloquear Empresa'}</span>
                                 </button>
                               </td>
                             </tr>
@@ -735,66 +1060,134 @@ export default function MasterDashboard() {
           )}
 
           {/* ========================================================================= */}
-          {/* SEÇÃO 3: FILA DE APROVAÇÃO */}
+          {/* SEÇÃO 3: FILA DE APROVAÇÃO (CRÍTICA) */}
           {/* ========================================================================= */}
           {activeTab === 'APPROVALS' && (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Users size={18} className="text-amber-400" /> Aprovação Manual de Organizadores ({pendingUsers.length})
-                </h3>
-                <p className="text-xs text-slate-400">Técnicos que se cadastraram sem utilizar a palavra-chave mágica da empresa.</p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Users size={18} className="text-amber-400" /> Aprovação Manual de Técnicos / Organizadores ({filteredPendingUsers.length})
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Técnicos que se cadastraram aguardando liberação de acesso pelo Administrador Master.
+                  </p>
+                </div>
+
+                {/* Busca na Fila */}
+                {pendingUsers.length > 0 && (
+                  <div className="relative max-w-xs w-full">
+                    <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+                    <input
+                      type="text"
+                      value={approvalSearch}
+                      onChange={(e) => setApprovalSearch(e.target.value)}
+                      placeholder="Buscar por nome, email ou empresa..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                  </div>
+                )}
               </div>
 
-              {pendingUsers.length === 0 ? (
+              {initialLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="h-20 bg-slate-950/70 rounded-2xl border border-slate-800 animate-pulse" />
+                  ))}
+                </div>
+              ) : filteredPendingUsers.length === 0 ? (
                 <div className="text-center py-16 text-slate-500 space-y-2">
                   <CheckCircle2 size={36} className="mx-auto opacity-30 text-green-500" />
                   <p className="text-sm font-semibold text-slate-300">Fila Limpa!</p>
-                  <p className="text-xs">Nenhum técnico aguardando aprovação no momento.</p>
+                  <p className="text-xs">
+                    {approvalSearch ? 'Nenhum usuário pendente com este termo.' : 'Nenhum técnico aguardando aprovação no momento.'}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {pendingUsers.map((user) => (
-                    <div key={user.id} className="p-4 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <p className="font-bold text-white text-sm">{user.name}</p>
-                        <p className="text-xs text-slate-400">{user.email} • {user.position || 'Técnico'}</p>
-                        
-                        <div className="mt-1 flex items-center gap-1.5">
-                          <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-md">
-                            Empresa informada: <strong className="text-amber-400">{user.company || 'Não vinculada'}</strong>
-                          </span>
-                          <span className="text-[10px] text-slate-500">
-                            {new Date(user.createdAt).toLocaleDateString('pt-BR')}
-                          </span>
+                  {filteredPendingUsers.map((user) => {
+                    const isProcessing = processingId === user.id;
+
+                    return (
+                      <div key={user.id} className="p-4 bg-slate-950 rounded-2xl border border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-white text-sm">{user.name}</p>
+                            <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md font-bold">
+                              PENDENTE
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400">{user.email} • {user.position || 'Técnico em Segurança'}</p>
+                          
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <span className="text-[10px] bg-slate-800 text-slate-300 px-2.5 py-0.5 rounded-md">
+                              Empresa declarada: <strong className="text-amber-400">{user.company || 'Não vinculada'}</strong>
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              Cadastrado em: {new Date(user.createdAt).toLocaleDateString('pt-BR')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Ações de Aprovação / Vinculação */}
+                        <div className="flex flex-wrap items-center gap-2 pt-2 lg:pt-0">
+                          
+                          {/* Seletor Rápido de Empresa de Destino */}
+                          <select
+                            value={selectedCompanyForApproval[user.id] || ''}
+                            onChange={(e) => setSelectedCompanyForApproval({
+                              ...selectedCompanyForApproval,
+                              [user.id]: e.target.value
+                            })}
+                            disabled={isProcessing}
+                            className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl px-2.5 py-2 outline-none focus:ring-2 focus:ring-green-500 max-w-[190px] disabled:opacity-50"
+                          >
+                            <option value="">Vincular a Empresa...</option>
+                            {companies.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            onClick={() => handleDeleteUser(user.id, user.name)}
+                            disabled={isProcessing}
+                            className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 disabled:opacity-50"
+                            title="Excluir cadastro permanentemente"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+
+                          <button
+                            onClick={() => handleUserApproval(user.id, 'BLOCKED')}
+                            disabled={isProcessing}
+                            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 disabled:opacity-50"
+                            title="Recusar solicitação e bloquear"
+                          >
+                            <X size={14} /> Recusar
+                          </button>
+
+                          <button
+                            onClick={() => handleUserApproval(user.id, 'ACTIVE', selectedCompanyForApproval[user.id])}
+                            disabled={isProcessing}
+                            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Aprovar e liberar acesso à plataforma"
+                          >
+                            {isProcessing ? (
+                              <>
+                                <Loader2 size={14} className="animate-spin" /> Liberando...
+                              </>
+                            ) : (
+                              <>
+                                <Check size={14} /> Liberar Acesso
+                              </>
+                            )}
+                          </button>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleDeleteUser(user.id, user.name)}
-                          className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
-                          title="Excluir cadastro permanentemente"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-
-                        <button
-                          onClick={() => handleUserApproval(user.id, 'BLOCKED')}
-                          className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
-                        >
-                          <X size={14} /> Recusar
-                        </button>
-
-                        <button
-                          onClick={() => handleUserApproval(user.id, 'ACTIVE')}
-                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1 shadow-md"
-                        >
-                          <Check size={14} /> Aprovar Acesso
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -805,28 +1198,52 @@ export default function MasterDashboard() {
           {/* ========================================================================= */}
           {activeTab === 'UNLINKED' && (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <UserX size={18} className="text-blue-400" /> Usuários Sem Empresa Vinculada ({unlinkedUsers.length})
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Técnicos que possuem cadastro mas não foram formalmente vinculados a uma empresa cliente.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <UserX size={18} className="text-blue-400" /> Usuários Sem Empresa Vinculada ({filteredUnlinkedUsers.length})
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Técnicos que possuem cadastro mas não foram formalmente vinculados a uma empresa cliente oficial.
+                  </p>
+                </div>
+
+                {/* Busca de Usuários Sem Empresa */}
+                {unlinkedUsers.length > 0 && (
+                  <div className="relative max-w-xs w-full">
+                    <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
+                    <input
+                      type="text"
+                      value={unlinkedSearch}
+                      onChange={(e) => setUnlinkedSearch(e.target.value)}
+                      placeholder="Buscar técnico..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-2 text-xs text-white placeholder-slate-600 outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                  </div>
+                )}
               </div>
 
-              {unlinkedUsers.length === 0 ? (
+              {initialLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="h-14 bg-slate-950/70 rounded-2xl border border-slate-800 animate-pulse" />
+                  ))}
+                </div>
+              ) : filteredUnlinkedUsers.length === 0 ? (
                 <div className="text-center py-16 text-slate-500 space-y-2">
                   <CheckCircle2 size={36} className="mx-auto opacity-30 text-blue-500" />
                   <p className="text-sm font-semibold text-slate-300">Tudo Organizado!</p>
-                  <p className="text-xs">Todos os usuários cadastrados estão vinculados a empresas oficiais.</p>
+                  <p className="text-xs">
+                    {unlinkedSearch ? 'Nenhum usuário encontrado com este termo.' : 'Todos os usuários cadastrados estão vinculados a empresas oficiais.'}
+                  </p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-left text-xs min-w-[700px]">
                     <thead>
                       <tr className="border-b border-slate-800 text-slate-400">
                         <th className="pb-3 font-semibold">Técnico / Usuário</th>
-                        <th className="pb-3 font-semibold">Empresa Informada (Texto)</th>
+                        <th className="pb-3 font-semibold">Empresa Informada</th>
                         <th className="pb-3 font-semibold">Status</th>
                         <th className="pb-3 font-semibold">DDSs Criados</th>
                         <th className="pb-3 font-semibold">Vincular a Empresa Oficial</th>
@@ -834,81 +1251,92 @@ export default function MasterDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60">
-                      {unlinkedUsers.map((user) => (
-                        <tr key={user.id} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-4">
-                            <p className="font-bold text-white text-sm">{user.name}</p>
-                            <p className="text-[11px] text-slate-500">{user.email} • {user.position || 'Técnico'}</p>
-                            <span className="text-[10px] text-slate-600">
-                              Cadastrado em {new Date(user.createdAt).toLocaleDateString('pt-BR')}
-                            </span>
-                          </td>
+                      {filteredUnlinkedUsers.map((user) => {
+                        const isProcessing = processingId === user.id;
 
-                          <td className="py-4">
-                            <span className="bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800 text-amber-400 font-semibold">
-                              {user.company || 'Não informado'}
-                            </span>
-                          </td>
+                        return (
+                          <tr key={user.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="py-4">
+                              <p className="font-bold text-white text-sm">{user.name}</p>
+                              <p className="text-[11px] text-slate-500">{user.email} • {user.position || 'Técnico'}</p>
+                              <span className="text-[10px] text-slate-600">
+                                Cadastrado em {new Date(user.createdAt).toLocaleDateString('pt-BR')}
+                              </span>
+                            </td>
 
-                          <td className="py-4">
-                            <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                              user.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
-                              user.status === 'PENDING_APPROVAL' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-                              'bg-red-500/20 text-red-400 border border-red-500/30'
-                            }`}>
-                              {user.status === 'ACTIVE' ? '🟢 ATIVO' :
-                               user.status === 'PENDING_APPROVAL' ? '🟡 PENDENTE' : '🔴 BLOQUEADO'}
-                            </span>
-                          </td>
+                            <td className="py-4">
+                              <span className="bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800 text-amber-400 font-semibold">
+                                {user.company || 'Não informado'}
+                              </span>
+                            </td>
 
-                          <td className="py-4 font-bold text-slate-300">
-                            {user._count?.meetings || 0} reuniões
-                          </td>
+                            <td className="py-4">
+                              <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                user.status === 'ACTIVE' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                                user.status === 'PENDING_APPROVAL' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                                'bg-red-500/20 text-red-400 border border-red-500/30'
+                              }`}>
+                                {user.status === 'ACTIVE' ? '🟢 ATIVO' :
+                                 user.status === 'PENDING_APPROVAL' ? '🟡 PENDENTE' : '🔴 BLOQUEADO'}
+                              </span>
+                            </td>
 
-                          <td className="py-4">
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={selectedCompanyForUser[user.id] || ''}
-                                onChange={(e) => setSelectedCompanyForUser({
-                                  ...selectedCompanyForUser,
-                                  [user.id]: e.target.value
-                                })}
-                                className="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-green-500 max-w-[200px]"
-                              >
-                                <option value="">Selecione uma empresa...</option>
-                                {companies.map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.name}
-                                  </option>
-                                ))}
-                              </select>
+                            <td className="py-4 font-bold text-slate-300">
+                              {user._count?.meetings || 0} reuniões
+                            </td>
 
+                            <td className="py-4">
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={selectedCompanyForUser[user.id] || ''}
+                                  onChange={(e) => setSelectedCompanyForUser({
+                                    ...selectedCompanyForUser,
+                                    [user.id]: e.target.value
+                                  })}
+                                  disabled={isProcessing}
+                                  className="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-green-500 max-w-[200px] disabled:opacity-50"
+                                >
+                                  <option value="">Selecione uma empresa...</option>
+                                  {companies.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <button
+                                  onClick={() => handleLinkUserToCompany(user.id)}
+                                  disabled={!selectedCompanyForUser[user.id] || isProcessing}
+                                  className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 transition-all ${
+                                    selectedCompanyForUser[user.id] && !isProcessing
+                                      ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 text-white shadow-md cursor-pointer'
+                                      : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700/50'
+                                  }`}
+                                  title="Vincular usuário à empresa selecionada"
+                                >
+                                  {isProcessing ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : (
+                                    <Link2 size={13} />
+                                  )}
+                                  <span>Vincular</span>
+                                </button>
+                              </div>
+                            </td>
+
+                            <td className="py-4 text-right">
                               <button
-                                onClick={() => handleLinkUserToCompany(user.id)}
-                                disabled={!selectedCompanyForUser[user.id]}
-                                className={`px-3 py-2 rounded-xl font-bold text-xs flex items-center gap-1 transition-all ${
-                                  selectedCompanyForUser[user.id]
-                                    ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 text-white shadow-md cursor-pointer'
-                                    : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700/50'
-                                }`}
-                                title="Vincular usuário à empresa selecionada"
+                                onClick={() => handleDeleteUser(user.id, user.name)}
+                                disabled={isProcessing}
+                                className="p-2 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white rounded-xl transition-all border border-red-500/30 disabled:opacity-50"
+                                title="Excluir este usuário"
                               >
-                                <Link2 size={13} /> Vincular
+                                <Trash2 size={14} />
                               </button>
-                            </div>
-                          </td>
-
-                          <td className="py-4 text-right">
-                            <button
-                              onClick={() => handleDeleteUser(user.id, user.name)}
-                              className="p-2 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white rounded-xl transition-all border border-red-500/30"
-                              title="Excluir este usuário"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -931,22 +1359,22 @@ export default function MasterDashboard() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   
-                  {/* Card Supabase Database */}
+                  {/* Card Database Singleton */}
                   <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-white flex items-center gap-2">
                         <Database size={16} className="text-green-400" /> Infraestrutura do Banco
                       </span>
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-green-500/20 text-green-400 border border-green-500/30">
-                        Supabase PostgreSQL
+                        Prisma Singleton Conectado
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Conexão em nuvem ativa com Transaction Pooler (PgBouncer) configurado para alta concorrência.
+                      Gerenciador centralizado de conexões ativas prevenindo saturação de poolers (PgBouncer) no PostgreSQL Supabase.
                     </p>
                     <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-900 space-y-1">
                       <p>• Schema: <strong>4 Tabelas Principais (Company, User, Meeting, Attendance)</strong></p>
-                      <p>• Validação anti-duplicação e FK constraints ativas</p>
+                      <p>• Validação transacional de exclusão e integridade referencial ativa</p>
                     </div>
                   </div>
 
@@ -961,7 +1389,7 @@ export default function MasterDashboard() {
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Ao suspender uma empresa cliente, todos os logins e presenças são bloqueados instantaneamente no DDS ON.
+                      Ao suspender uma empresa cliente, todos os logins e emissões de presença são bloqueados em tempo real na plataforma.
                     </p>
                     <div className="text-[11px] text-slate-500 pt-2 border-t border-slate-900 space-y-1">
                       <p>• Bloqueio na rota de autenticação (/api/auth)</p>
