@@ -585,8 +585,8 @@ export default function MasterDashboard() {
           {/* Logo e Cabeçalho da Sidebar */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
             <div className="flex items-center gap-3">
-              <div className="p-2 sm:p-2.5 bg-green-500/10 text-green-400 rounded-2xl border border-green-500/20 shrink-0">
-                <ShieldAlert size={24} className="sm:w-6 sm:h-6" />
+              <div className="p-1 bg-slate-950 rounded-xl border border-green-500/30 shrink-0 shadow-md">
+                <img src="/logo.jpg" alt="DDS Master Logo" className="w-9 h-9 rounded-lg object-cover" />
               </div>
               <div>
                 <h1 className="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-1">

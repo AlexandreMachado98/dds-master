@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Lock, Mail, ArrowRight, KeyRound, ExternalLink, ShieldCheck, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Lock, Mail, ArrowRight, KeyRound, ExternalLink, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export default function MasterLoginPage() {
@@ -73,14 +73,21 @@ export default function MasterLoginPage() {
 
       <div className="w-full max-w-md bg-slate-900/95 sm:bg-slate-900/90 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl relative z-10 space-y-5 sm:space-y-6 backdrop-blur-md my-auto">
         
-        <div className="text-center space-y-2">
-          <div className="inline-flex p-3 sm:p-3.5 bg-green-500/10 rounded-2xl border border-green-500/20 text-green-400 mb-0.5">
-            <ShieldCheck size={32} className="sm:w-9 sm:h-9" />
+        <div className="text-center space-y-3">
+          {/* Nova Logo Oficial do DDS Master */}
+          <div className="inline-flex p-1.5 bg-slate-950 rounded-2xl border border-green-500/30 shadow-lg shadow-green-500/10">
+            <img 
+              src="/logo.jpg" 
+              alt="DDS Master Logo" 
+              className="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-xl"
+            />
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-            DDS <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-500">ON</span> MASTER
-          </h1>
-          <p className="text-slate-400 text-xs font-medium">Acesso Restrito ao Proprietário (Super Admin)</p>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+              DDS <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-500">ON</span> MASTER
+            </h1>
+            <p className="text-slate-400 text-xs font-medium mt-0.5">Acesso Restrito ao Proprietário (Super Admin)</p>
+          </div>
         </div>
 
         {error && (
