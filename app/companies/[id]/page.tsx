@@ -65,27 +65,27 @@ export default async function CompanyDetailPage({ params }: PageProps) {
   const isSuspended = company.status === 'SUSPENDED';
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8 flex flex-col justify-between">
-      <div className="max-w-7xl w-full mx-auto space-y-8">
+    <main className="min-h-screen min-h-[100dvh] bg-slate-950 text-slate-100 font-sans p-3 sm:p-6 md:p-8 flex flex-col justify-between overflow-x-hidden pt-safe pb-safe">
+      <div className="max-w-7xl w-full mx-auto space-y-6 sm:space-y-8">
         
-        {/* CABEÇALHO */}
-        <header className="bg-slate-900/90 border border-slate-800 p-6 rounded-3xl backdrop-blur-md shadow-2xl space-y-4">
+        {/* CABEÇALHO DA EMPRESA */}
+        <header className="bg-slate-900/90 border border-slate-800 p-4 sm:p-6 rounded-2xl sm:rounded-3xl backdrop-blur-md shadow-2xl space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-start sm:items-center gap-3 sm:gap-4">
               <Link
                 href="/"
-                className="p-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-2xl border border-slate-700 transition-colors flex items-center justify-center group"
+                className="p-2.5 sm:p-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-2xl border border-slate-700 transition-colors flex items-center justify-center group shrink-0 min-w-[44px] min-h-[44px]"
                 title="Voltar ao Painel Master"
               >
                 <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
               </Link>
               
-              <div>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
-                    <Building2 className="text-green-400" size={26} /> {company.name}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+                  <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2 truncate">
+                    <Building2 className="text-green-400 shrink-0" size={24} /> {company.name}
                   </h1>
-                  <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase border ${
+                  <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase border shrink-0 ${
                     isSuspended 
                       ? 'bg-red-500/20 text-red-400 border-red-500/30' 
                       : 'bg-green-500/20 text-green-300 border-green-500/30'
@@ -99,8 +99,8 @@ export default async function CompanyDetailPage({ params }: PageProps) {
               </div>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 px-4 py-3 rounded-2xl flex items-center gap-3">
-              <KeyRound size={18} className="text-green-400" />
+            <div className="bg-slate-950 border border-slate-800 px-4 py-3 rounded-2xl flex items-center gap-3 shrink-0">
+              <KeyRound size={20} className="text-green-400 shrink-0" />
               <div>
                 <p className="text-[10px] text-slate-500 uppercase font-semibold">Chave de Cadastro Automático</p>
                 <p className="font-mono text-sm font-black text-green-400 tracking-wider">
@@ -112,40 +112,40 @@ export default async function CompanyDetailPage({ params }: PageProps) {
         </header>
 
         {/* CARDS DE MÉTRICAS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="bg-slate-900 border border-slate-800 p-4 sm:p-5 rounded-2xl space-y-1 shadow-lg">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-              <Users size={15} className="text-blue-400" /> Técnicos Vinculados
+              <Users size={15} className="text-blue-400 shrink-0" /> Técnicos Vinculados
             </span>
-            <p className="text-3xl font-black text-white">{totalTecnicos}</p>
+            <p className="text-2xl sm:text-3xl font-black text-white">{totalTecnicos}</p>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
+          <div className="bg-slate-900 border border-slate-800 p-4 sm:p-5 rounded-2xl space-y-1 shadow-lg">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-              <Video size={15} className="text-emerald-400" /> Total de DDSs
+              <Video size={15} className="text-emerald-400 shrink-0" /> Total de DDSs
             </span>
-            <p className="text-3xl font-black text-white">{totalDDS}</p>
-            <span className="text-[10px] text-slate-500 block">
+            <p className="text-2xl sm:text-3xl font-black text-white">{totalDDS}</p>
+            <span className="text-[10px] text-slate-500 block truncate">
               {totalPresenciais} presenciais • {totalRemotos} ao vivo
             </span>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
+          <div className="bg-slate-900 border border-slate-800 p-4 sm:p-5 rounded-2xl space-y-1 shadow-lg">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-              <ShieldCheck size={15} className="text-green-400" /> Presenças Auditadas
+              <ShieldCheck size={15} className="text-green-400 shrink-0" /> Presenças Auditadas
             </span>
-            <p className="text-3xl font-black text-green-400">{totalAssinaturas}</p>
-            <span className="text-[10px] text-slate-500 block">Com biometria facial e assinatura</span>
+            <p className="text-2xl sm:text-3xl font-black text-green-400">{totalAssinaturas}</p>
+            <span className="text-[10px] text-slate-500 block truncate">Com biometria facial e assinatura</span>
           </div>
 
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-1 shadow-lg">
+          <div className="bg-slate-900 border border-slate-800 p-4 sm:p-5 rounded-2xl space-y-1 shadow-lg">
             <span className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
-              <Activity size={15} className="text-amber-400" /> Média por DDS
+              <Activity size={15} className="text-amber-400 shrink-0" /> Média por DDS
             </span>
-            <p className="text-3xl font-black text-amber-400">
+            <p className="text-2xl sm:text-3xl font-black text-amber-400">
               {totalDDS > 0 ? (totalAssinaturas / totalDDS).toFixed(1) : '0'}
             </p>
-            <span className="text-[10px] text-slate-500 block">Participantes / reunião</span>
+            <span className="text-[10px] text-slate-500 block truncate">Participantes / reunião</span>
           </div>
         </div>
 
@@ -153,17 +153,65 @@ export default async function CompanyDetailPage({ params }: PageProps) {
         <CompanyUserTable initialUsers={company.users} />
 
         {/* SEÇÃO 2: HISTÓRICO DE DDSs */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 space-y-4 shadow-xl">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <Video size={18} className="text-emerald-400" /> Histórico de Treinamentos e DDSs ({meetings.length})
+                <Video size={18} className="text-emerald-400 shrink-0" /> Histórico de Treinamentos e DDSs ({meetings.length})
               </h2>
               <p className="text-xs text-slate-400">Registro de todas as atas geradas e reuniões realizadas</p>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* 1. VISUALIZAÇÃO MOBILE EM CARDS (< 768px) */}
+          <div className="block md:hidden space-y-3">
+            {meetings.length === 0 ? (
+              <p className="py-8 text-center text-slate-500 text-xs">
+                Nenhum DDS registrado por esta empresa até o momento.
+              </p>
+            ) : (
+              meetings.map((meeting) => (
+                <div key={meeting.id} className="p-4 bg-slate-950 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-white text-sm truncate">{meeting.topic}</p>
+                      {meeting.objective && (
+                        <p className="text-[11px] text-slate-500 line-clamp-2">{meeting.objective}</p>
+                      )}
+                    </div>
+                    <span className={`px-2.5 py-0.5 rounded-md font-bold text-[10px] shrink-0 border ${
+                      meeting.type === 'REMOTE' 
+                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' 
+                        : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                    }`}>
+                      {meeting.type === 'REMOTE' ? '📹 AO VIVO' : '👥 CAMPO'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-900">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Local / Setor</span>
+                      <span className="flex items-center gap-1 text-slate-300 truncate">
+                        <MapPin size={11} className="text-slate-500 shrink-0" /> {meeting.farm}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-500 block">Assinaturas</span>
+                      <span className="font-bold text-green-400 text-xs">{meeting._count.attendees} presentes</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-900/60">
+                    <span className="truncate max-w-[180px]">{meeting.organizer?.name || 'Técnico Não Identificado'}</span>
+                    <span className="font-mono text-slate-500">{new Date(meeting.createdAt).toLocaleDateString('pt-BR')}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* 2. VISUALIZAÇÃO TABULAR DESKTOP (>= 768px) */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-xs min-w-[700px]">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400">
@@ -194,7 +242,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
                       </td>
                       <td className="py-4 text-slate-300">
                         <span className="flex items-center gap-1">
-                          <MapPin size={12} className="text-slate-500" /> {meeting.farm}
+                          <MapPin size={12} className="text-slate-500 shrink-0" /> {meeting.farm}
                         </span>
                       </td>
                       <td className="py-4">
@@ -238,17 +286,17 @@ export default async function CompanyDetailPage({ params }: PageProps) {
 
       </div>
 
-      <footer className="mt-12 pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
+      <footer className="mt-8 sm:mt-12 pt-4 sm:pt-6 border-t border-slate-900 text-center space-y-1.5 max-w-7xl w-full mx-auto">
         <p className="text-[11px] text-slate-500 font-normal">
           © {new Date().getFullYear()} <strong>DDS ON MASTER</strong> • Todos os direitos reservados.
         </p>
-        <div className="flex items-center justify-center gap-1 text-[11px] text-slate-500">
+        <div className="flex flex-wrap items-center justify-center gap-1 text-[11px] text-slate-500">
           <span>Desenvolvido e Gerenciado por</span>
           <a
             href="https://amtst.vercel.app"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-green-400 hover:text-green-300 font-bold inline-flex items-center gap-1 transition-colors underline underline-offset-2"
+            className="text-green-400 hover:text-green-300 font-bold inline-flex items-center gap-1 transition-colors underline underline-offset-2 p-1"
           >
             AM TST
           </a>
