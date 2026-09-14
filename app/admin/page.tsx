@@ -5,7 +5,8 @@ import {
   Play, Users, FileText, CheckCircle2, 
   Smartphone, Download, Copy, Check, LogOut, 
   History, PlusCircle, Calendar, AlertTriangle, X, Radio, Clock, RefreshCw, Loader2, Filter, FileSpreadsheet,
-  Camera, Image as ImageIcon, Trash2, Target, ExternalLink, Info, CheckSquare, Square, MapPin, Sparkles, ChevronRight, Eye
+  Camera, Image as ImageIcon, Trash2, Target, ExternalLink, Info, CheckSquare, Square, MapPin, Sparkles, ChevronRight, Eye,
+  Search, Edit3, UserCheck, Building2, ShieldCheck, Save
 } from 'lucide-react';
 import Link from 'next/link';
 import { generateDdsPdf, generateConsolidatedDdsPdf } from '@/lib/pdfGenerator';
@@ -22,10 +23,19 @@ export default function AdminPanel() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'NEW_DDS' | 'HISTORY'>('NEW_DDS');
+  const [activeTab, setActiveTab] = useState<'NEW_DDS' | 'HISTORY' | 'COLLABORATORS'>('NEW_DDS');
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [isCreatingMeeting, setIsCreatingMeeting] = useState(false);
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
+
+  // Gestão de Colaboradores
+  const [collaborators, setCollaborators] = useState<any[]>([]);
+  const [isLoadingCollaborators, setIsLoadingCollaborators] = useState(false);
+  const [collaboratorSearch, setCollaboratorSearch] = useState('');
+  const [editingCollaborator, setEditingCollaborator] = useState<any | null>(null);
+  const [editCollaboratorName, setEditCollaboratorName] = useState('');
+  const [editCollaboratorPosition, setEditCollaboratorPosition] = useState('');
+  const [isSavingCollaborator, setIsSavingCollaborator] = useState(false);
 
   // Formulário do Novo DDS
   const [meetingType, setMeetingType] = useState<'PRESENTIAL' | 'REMOTE'>('PRESENTIAL');
@@ -234,9 +244,100 @@ export default function AdminPanel() {
     }
   }, [currentUser?.id, startDate, endDate, teamPhotos.length]);
 
+  // Busca lista de colaboradores da empresa
+  const fetchCollaborators = useCallback(async (search = '') => {
+    if (!currentUser?.id) return;
+    setIsLoadingCollaborators(true);
+    try {
+      const url = `/api/colaboradores?search=${encodeURIComponent(search)}&_t=${Date.now()}`;
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCollaborators(data.collaborators || []);
+      }
+    } catch (e) {
+      console.error('Erro ao buscar colaboradores:', e);
+    } finally {
+      setIsLoadingCollaborators(false);
+    }
+  }, [currentUser?.id]);
+
+  const handleOpenEditCollaborator = (collab: any) => {
+    setEditingCollaborator(collab);
+    setEditCollaboratorName(collab.name || '');
+    setEditCollaboratorPosition(collab.position || '');
+  };
+
+  const handleSaveCollaborator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCollaborator || isSavingCollaborator) return;
+
+    const cleanName = editCollaboratorName.replace(/\s+/g, ' ').trim();
+    if (cleanName.length < 2) {
+      showToast('O nome deve ter no mínimo 2 caracteres.', 'error');
+      return;
+    }
+    if (cleanName.length > 100) {
+      showToast('O nome não pode exceder 100 caracteres.', 'error');
+      return;
+    }
+
+    setIsSavingCollaborator(true);
+    try {
+      const res = await fetch('/api/colaboradores', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          collaboratorId: editingCollaborator.id,
+          name: cleanName,
+          position: editCollaboratorPosition.trim() || undefined
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(data.message || 'Nome do colaborador corrigido com sucesso!', 'success');
+        
+        // Atualiza estado local de colaboradores
+        setCollaborators(prev => prev.map(c => 
+          c.id === editingCollaborator.id 
+            ? { ...c, name: cleanName, position: editCollaboratorPosition.trim() || c.position }
+            : c
+        ));
+
+        // Se for o próprio usuário logado, atualiza o estado e cache de sessão imediatamente
+        if (currentUser && currentUser.id === editingCollaborator.id) {
+          const updatedSelf = { 
+            ...currentUser, 
+            name: cleanName, 
+            position: editCollaboratorPosition.trim() || currentUser.position 
+          };
+          setCurrentUser(updatedSelf);
+          try {
+            localStorage.setItem('dds_admin_auth', JSON.stringify(updatedSelf));
+          } catch {}
+        }
+
+        setEditingCollaborator(null);
+        fetchCollaborators(collaboratorSearch);
+        fetchAllData();
+      } else {
+        showToast(data.error || 'Erro ao atualizar colaborador.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão ao tentar salvar o colaborador.', 'error');
+    } finally {
+      setIsSavingCollaborator(false);
+    }
+  };
+
   useEffect(() => {
     if (currentUser?.id) {
       fetchAllData();
+      fetchCollaborators();
       const interval = setInterval(() => {
         if (typeof document !== 'undefined' && document.hidden) return;
         fetchAllData();
@@ -254,7 +355,7 @@ export default function AdminPanel() {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       };
     }
-  }, [currentUser?.id, fetchAllData]);
+  }, [currentUser?.id, fetchAllData, fetchCollaborators]);
 
   const handleStartNewMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1439,8 +1540,8 @@ export default function AdminPanel() {
         {/* Badge de Sincronização e Fila Offline */}
         <OfflineSyncBadge meetingId={activeMeeting?.id} onSyncComplete={() => fetchAllData()} />
 
-        {/* Abas de Navegação (Novo DDS vs Histórico) */}
-        <div className="grid grid-cols-2 bg-slate-900 border border-slate-800 p-1.5 rounded-2xl gap-1.5 shadow-lg">
+        {/* Abas de Navegação (Novo DDS vs Histórico vs Colaboradores) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 bg-slate-900 border border-slate-800 p-1.5 rounded-2xl gap-1.5 shadow-lg">
           <button
             onClick={() => setActiveTab('NEW_DDS')}
             className={`py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
@@ -1463,6 +1564,21 @@ export default function AdminPanel() {
           >
             <History size={16} />
             <span>Histórico & Atas ({meetingHistory.length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('COLLABORATORS');
+              fetchCollaborators(collaboratorSearch);
+            }}
+            className={`py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'COLLABORATORS'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Users size={16} />
+            <span>Colaboradores ({collaborators.length})</span>
           </button>
         </div>
 
@@ -1566,34 +1682,32 @@ export default function AdminPanel() {
                 </div>
               </div>
 
-                            {/* Objetivo */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                  Objetivo / Observações da Reunião
+                  Objetivo Específico
                 </label>
-                <textarea
-                  rows={2}
+                <input
+                  type="text"
                   value={objective}
                   onChange={(e) => setObjective(e.target.value)}
-                  placeholder="Ex: Orientar os operadores de trator quanto à verificação diária do cinto e freios."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-base sm:text-xs text-white placeholder-slate-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none leading-relaxed"
+                  placeholder="Ex: Conscientizar a equipe sobre a importância do uso de trava-quedas."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-base sm:text-xs text-white font-medium focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none min-h-[44px]"
                 />
               </div>
 
-              {/* Conteúdo Programático (Exibido apenas quando for Treinamento) */}
               <div>
-                  <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
-                    <span>Conteúdo Programático (Treinamento)</span>
-                    <span className="text-[10px] text-emerald-400 font-normal lowercase">sai na ata em pdf</span>
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={programmaticContent}
-                    onChange={(e) => setProgrammaticContent(e.target.value)}
-                    placeholder="Ex: Módulo 1: Legislação e NRs aplicáveis&#10;Módulo 2: Procedimentos de segurança e EPIs&#10;Módulo 3: Prática operacional e primeiros socorros."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-base sm:text-xs text-white placeholder-slate-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none leading-relaxed font-sans"
-                  />
-                </div>
+                <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
+                  <span>Conteúdo Programático</span>
+                  <span className="text-[10px] text-emerald-400 font-normal lowercase">sai na ata em pdf</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={programmaticContent}
+                  onChange={(e) => setProgrammaticContent(e.target.value)}
+                  placeholder="Ex: Módulo 1: Legislação e NRs aplicáveis&#10;Módulo 2: Procedimentos de segurança e EPIs&#10;Módulo 3: Prática operacional e primeiros socorros."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-base sm:text-xs text-white placeholder-slate-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none leading-relaxed font-sans"
+                />
+              </div>
 
               {/* Seção de Anexos / Evidências do Novo DDS */}
               <div className="pt-2 border-t border-slate-800/80">
@@ -1741,6 +1855,267 @@ export default function AdminPanel() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* ABA 3: GESTÃO DE COLABORADORES                                        */}
+        {/* ===================================================================== */}
+        {activeTab === 'COLLABORATORS' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-xl space-y-5 animate-in fade-in duration-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div>
+                <h2 className="text-base sm:text-lg font-extrabold text-white flex items-center gap-2">
+                  <Users size={20} className="text-emerald-400" />
+                  Gestão de Colaboradores da Empresa
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Consulte os membros da equipe, visualize participações e corrija nomes com sincronização automática no perfil e novas atas.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fetchCollaborators(collaboratorSearch)}
+                  disabled={isLoadingCollaborators}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition-all border border-slate-700 flex items-center gap-1.5 cursor-pointer min-h-[38px]"
+                  title="Atualizar Lista"
+                >
+                  <RefreshCw size={13} className={isLoadingCollaborators ? 'animate-spin text-emerald-400' : ''} />
+                  <span className="hidden xs:inline">Atualizar</span>
+                </button>
+                <span className="text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-2 rounded-xl">
+                  {collaborators.length} {collaborators.length === 1 ? 'colaborador' : 'colaboradores'}
+                </span>
+              </div>
+            </div>
+
+            {/* Barra de Busca e Filtro */}
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+              <input
+                type="text"
+                value={collaboratorSearch}
+                onChange={(e) => {
+                  setCollaboratorSearch(e.target.value);
+                  fetchCollaborators(e.target.value);
+                }}
+                placeholder="Buscar colaborador por nome, cargo ou e-mail..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-10 pr-10 py-3 text-sm text-white placeholder-slate-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all min-h-[46px]"
+              />
+              {collaboratorSearch && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCollaboratorSearch('');
+                    fetchCollaborators('');
+                  }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Listagem de Colaboradores */}
+            {isLoadingCollaborators ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400">
+                <Loader2 size={32} className="animate-spin text-emerald-500" />
+                <p className="text-xs">Carregando colaboradores da empresa...</p>
+              </div>
+            ) : collaborators.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl space-y-1.5">
+                <Users size={28} className="mx-auto text-slate-600 mb-2" />
+                <p className="font-bold text-slate-300">
+                  {collaboratorSearch ? 'Nenhum colaborador encontrado para esta busca.' : 'Nenhum colaborador cadastrado na empresa ainda.'}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {collaboratorSearch ? 'Tente buscar com outros termos.' : 'Novos colaboradores aparecerão automaticamente ao se cadastrarem ou participarem de DDS.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {collaborators.map((collab) => {
+                  const getInitials = (n: string) => {
+                    if (!n) return 'COL';
+                    const parts = n.trim().split(/\s+/).filter(Boolean);
+                    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+                    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+                  };
+
+                  return (
+                    <div
+                      key={collab.id}
+                      className="bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 flex flex-col justify-between gap-3 transition-all shadow-md group"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-start gap-3">
+                          {/* Avatar Circular */}
+                          <div className="w-11 h-11 rounded-full ring-2 ring-emerald-500/30 p-0.5 bg-slate-900 shrink-0 overflow-hidden flex items-center justify-center">
+                            {collab.photoURL ? (
+                              <img
+                                src={collab.photoURL}
+                                alt={collab.name}
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full rounded-full bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white text-xs font-black select-none">
+                                {getInitials(collab.name)}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-extrabold text-white truncate group-hover:text-emerald-300 transition-colors">
+                              {collab.name}
+                            </h3>
+                            <p className="text-xs text-slate-400 truncate mt-0.5">
+                              {collab.position || 'Colaborador'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-mono truncate mt-0.5">
+                              {collab.email || 'Identificador de Presença'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Metadados e Presenças */}
+                        <div className="pt-2 border-t border-slate-900 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-400 flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            Ativo
+                          </span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            {collab.totalPresencas || 0} DDS participado(s)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Botão de Edição do Nome */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditCollaborator(collab)}
+                        className="w-full py-2.5 bg-slate-900 hover:bg-emerald-950/70 text-slate-300 hover:text-emerald-300 border border-slate-800 hover:border-emerald-700/60 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px]"
+                      >
+                        <Edit3 size={13} className="text-emerald-400" />
+                        <span>Editar Colaborador</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================================================================== */}
+        {/* MODAL DE EDIÇÃO DO NOME DO COLABORADOR COM SINCRONIZAÇÃO AUTOMÁTICA    */}
+        {/* ===================================================================== */}
+        {editingCollaborator && (
+          <div className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+            <div className="bg-slate-900 border border-slate-800 p-5 sm:p-6 rounded-3xl max-w-md w-full shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2 text-emerald-400">
+                  <Edit3 size={20} />
+                  <h2 className="text-base font-extrabold text-white">Editar Colaborador</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingCollaborator(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Caixa Informativa do Nome Atual */}
+              <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Nome Atual:</span>
+                  <span className="text-[10px] font-mono bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">
+                    Fonte Oficial
+                  </span>
+                </div>
+                <p className="text-sm font-black text-white">{editingCollaborator.name}</p>
+                <p className="text-[11px] text-slate-400">{editingCollaborator.position || 'Colaborador'}</p>
+              </div>
+
+              <form onSubmit={handleSaveCollaborator} className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                    Novo Nome Completo *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editCollaboratorName}
+                    onChange={(e) => setEditCollaboratorName(e.target.value)}
+                    placeholder="Ex: João da Silva"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-3.5 py-3 text-base sm:text-xs text-white font-bold outline-none transition-all min-h-[44px]"
+                    autoFocus
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 leading-tight">
+                    Preserva acentos, apóstrofos (ex: D&apos;Ávila) e remove espaços duplicados.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                    Cargo / Função (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={editCollaboratorPosition}
+                    onChange={(e) => setEditCollaboratorPosition(e.target.value)}
+                    placeholder="Ex: Operador de Máquinas"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-3.5 py-3 text-base sm:text-xs text-white font-medium outline-none transition-all min-h-[44px]"
+                  />
+                </div>
+
+                {/* Prévia da Correção em Tempo Real */}
+                {editCollaboratorName.trim() && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs space-y-1">
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">
+                      Resultado após salvar:
+                    </span>
+                    <p className="font-bold text-white text-xs">
+                      {editCollaboratorName.replace(/\s+/g, ' ').trim()}
+                    </p>
+                    <p className="text-[10px] text-emerald-300/80">
+                      ✓ Sincronizará no perfil do colaborador, novas atas e relatórios.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCollaborator(null)}
+                    disabled={isSavingCollaborator}
+                    className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-colors cursor-pointer min-h-[44px]"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingCollaborator}
+                    className="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-black text-xs rounded-xl shadow-lg shadow-emerald-950/60 transition-all flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
+                  >
+                    {isSavingCollaborator ? (
+                      <>
+                        <Loader2 size={15} className="animate-spin" />
+                        <span>Salvando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save size={15} />
+                        <span>Salvar Alterações</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 

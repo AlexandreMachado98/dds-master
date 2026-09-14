@@ -12,6 +12,7 @@ enum Role {
   SUPER_ADMIN
   COMPANY_ADMIN
   ORGANIZER
+  COLLABORATOR
 }
 
 enum Status {
@@ -102,4 +103,17 @@ model MeetingAttachment {
   createdAt   DateTime @default(now())
   meetingId   String
   meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  adminId        String
+  adminName      String?
+  action         String
+  collaboratorId String?
+  previousValue  String?
+  newValue       String?
+  details        String?
+  companyId      String?
+  createdAt      DateTime @default(now())
 }
