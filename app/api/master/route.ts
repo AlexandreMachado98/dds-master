@@ -420,6 +420,89 @@ export async function PATCH(req: Request) {
       });
     }
 
+    // 5. ATUALIZAR/CORRIGIR NOME DO COLABORADOR OU USUÁRIO
+    if (action === 'update_user_name' || action === 'update_collaborator_name') {
+      const { name } = body;
+      if (!userId || !name || typeof name !== 'string') {
+        return NextResponse.json(
+          { success: false, error: 'ID do usuário e novo nome são obrigatórios.' },
+          { status: 400 }
+        );
+      }
+
+      const cleanName = name.trim().replace(/\s+/g, ' ');
+      if (cleanName.length < 2 || cleanName.length > 100) {
+        return NextResponse.json(
+          { success: false, error: 'O nome deve ter entre 2 e 100 caracteres.' },
+          { status: 400 }
+        );
+      }
+
+      const validRegex = /^[A-Za-zÀ-ÖØ-öø-ÿ\s'´`-]+$/;
+      if (!validRegex.test(cleanName)) {
+        return NextResponse.json(
+          { success: false, error: 'O nome contém caracteres inválidos. Utilize apenas letras, acentos, apóstrofos e hífens.' },
+          { status: 400 }
+        );
+      }
+
+      const targetUser = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { companyRel: true }
+      });
+
+      if (!targetUser) {
+        return NextResponse.json(
+          { success: false, error: 'Usuário não encontrado.' },
+          { status: 404 }
+        );
+      }
+
+      const previousName = targetUser.name;
+
+      if (previousName === cleanName) {
+        return NextResponse.json({
+          success: true,
+          message: 'O nome informado já é o nome atual.',
+          user: targetUser
+        });
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: { name: cleanName },
+        include: { companyRel: { select: { id: true, name: true } } }
+      });
+
+      // Sincroniza presenças em reuniões ativas (LIVE)
+      try {
+        await prisma.attendance.updateMany({
+          where: {
+            name: previousName,
+            meeting: { status: 'LIVE' }
+          },
+          data: { name: cleanName }
+        });
+      } catch (e) {
+        console.warn('Sincronização de presença ativa:', e);
+      }
+
+      logAdminAudit('USER_NAME_UPDATED', {
+        userId: updated.id,
+        userEmail: updated.email,
+        previousName,
+        newName: cleanName,
+        company: updated.company,
+        companyId: updated.companyId
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Nome atualizado com sucesso para "${cleanName}".`,
+        user: updated
+      });
+    }
+
     return NextResponse.json(
       { success: false, error: 'Ação administrativa não reconhecida.' },
       { status: 400 }

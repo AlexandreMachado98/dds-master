@@ -16,6 +16,7 @@ enum Role {
   SUPER_ADMIN      // Dono da Plataforma (Acesso ao DDS MASTER)
   COMPANY_ADMIN    // Gestor da Fazenda / Empresa
   ORGANIZER        // Técnico em Segurança do Trabalho
+  COLLABORATOR     // Colaborador / Participante
 }
 
 enum Status {
@@ -112,3 +113,27 @@ model Attendance {
   meetingId     String
   meeting       Meeting   @relation(fields: [meetingId], references: [id])
 }
+
+// =========================================================================
+// 5. TABELA DE AUDITORIA DE ALTERAÇÕES
+// =========================================================================
+
+model AuditLog {
+  id              String    @id @default(uuid())
+  action          String    // Ex: "UPDATE_COLLABORATOR_NAME", "USER_STATUS_UPDATED"
+  entityType      String    // Ex: "User", "Attendance", "Company"
+  entityId        String    // ID do registro afetado
+  adminId         String?   // ID do admin que realizou a ação
+  adminName       String?   // Nome do admin
+  companyId       String?   // ID da empresa
+  previousValue   String?   // Valor anterior (ex: Nome anterior ou JSON)
+  newValue        String?   // Novo valor (ex: Nome corrigido ou JSON)
+  details         String?   // Metadados adicionais em formato JSON
+  ipAddress       String?   // IP de origem
+  userAgent       String?   // Dispositivo / Navegador
+  createdAt       DateTime  @default(now())
+
+  @@index([entityId])
+  @@index([action])
+  @@index([companyId])
+}
