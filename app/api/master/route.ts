@@ -21,24 +21,45 @@ export async function GET(req: Request) {
   try {
     const [
       totalCompanies,
+      activeCompanies,
+      suspendedCompanies,
+      totalUsers,
       totalMeetings,
+      liveMeetings,
       totalAttendees,
       pendingApprovals,
+      totalQuizzes,
+      publishedQuizzes,
+      totalAttempts,
+      passedAttempts,
       companies,
       pendingUsers,
       unlinkedUsers,
-      recentMeetings
+      recentMeetings,
+      recentAttempts
     ] = await Promise.all([
       prisma.company.count(),
+      prisma.company.count({ where: { status: 'ACTIVE' } }),
+      prisma.company.count({ where: { status: 'SUSPENDED' } }),
+      prisma.user.count(),
       prisma.meeting.count(),
+      prisma.meeting.count({ where: { status: 'LIVE' } }),
       prisma.attendance.count(),
       prisma.user.count({
         where: { status: 'PENDING_APPROVAL' }
       }),
+      prisma.quiz.count(),
+      prisma.quiz.count({ where: { status: 'PUBLISHED' } }),
+      prisma.quizAttempt.count(),
+      prisma.quizAttempt.count({ where: { passed: true } }),
       prisma.company.findMany({
         include: {
           _count: { select: { meetings: true, users: true } },
-          meetings: { select: { _count: { select: { attendees: true } } } }
+          meetings: {
+            select: {
+              _count: { select: { attendees: true, quizzes: true } }
+            }
+          }
         },
         orderBy: { createdAt: 'desc' }
       }),
@@ -61,6 +82,11 @@ export async function GET(req: Request) {
         select: { topic: true },
         take: 300,
         orderBy: { createdAt: 'desc' }
+      }),
+      prisma.quizAttempt.findMany({
+        select: { score: true },
+        take: 500,
+        orderBy: { submittedAt: 'desc' }
       })
     ]);
 
@@ -72,7 +98,8 @@ export async function GET(req: Request) {
       secretKey: c.secretKey,
       totalMeetings: c._count.meetings,
       totalUsers: c._count.users,
-      totalAttendees: c.meetings.reduce((acc, m) => acc + m._count.attendees, 0)
+      totalAttendees: c.meetings.reduce((acc, m) => acc + m._count.attendees, 0),
+      totalQuizzes: c.meetings.reduce((acc, m) => acc + m._count.quizzes, 0)
     }));
 
     const topicCounts: Record<string, number> = {};
@@ -88,13 +115,32 @@ export async function GET(req: Request) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
+    const overallAvgScore = recentAttempts.length > 0
+      ? Math.round((recentAttempts.reduce((acc, a) => acc + a.score, 0) / recentAttempts.length) * 10) / 10
+      : 0;
+
+    const passRate = totalAttempts > 0
+      ? Math.round((passedAttempts / totalAttempts) * 100)
+      : 0;
+
     return NextResponse.json({
       success: true,
       metrics: {
         totalCompanies,
+        activeCompanies,
+        suspendedCompanies,
+        totalUsers,
         totalMeetings,
+        liveMeetings,
+        endedMeetings: totalMeetings - liveMeetings,
         totalAttendees,
-        pendingApprovals
+        pendingApprovals,
+        totalQuizzes,
+        publishedQuizzes,
+        totalAttempts,
+        passedAttempts,
+        overallAvgScore,
+        passRate
       },
       companies: formattedCompanies,
       pendingUsers,

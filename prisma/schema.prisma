@@ -1,5 +1,6 @@
- generator client {
-  provider = "prisma-client-js"
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x", "rhel-openssl-1.0.x"]
 }
 
 datasource db {
@@ -13,10 +14,9 @@ datasource db {
 // =========================================================================
 
 enum Role {
-  SUPER_ADMIN      // Dono da Plataforma (Acesso ao DDS MASTER)
+  SUPER_ADMIN      // Administrador Master da Plataforma
   COMPANY_ADMIN    // Gestor da Fazenda / Empresa
   ORGANIZER        // Técnico em Segurança do Trabalho
-  COLLABORATOR     // Colaborador / Participante
 }
 
 enum Status {
@@ -52,19 +52,21 @@ model User {
   id         String    @id @default(uuid())
   name       String    // Nome Completo do Técnico/Gestor
   email      String    @unique
-  password   String    // Senha de Acesso
+  password   String    // Senha de Acesso (hash bcrypt)
   role       Role      @default(ORGANIZER)
   status     Status    @default(ACTIVE)
   position   String?   @default("Técnico em Segurança do Trabalho")
   company    String?   // Nome descritivo da empresa/unidade
+  photoURL   String?
   createdAt  DateTime  @default(now())
   
   // Vinculação com a Empresa
   companyId  String?
   companyRel Company?  @relation(fields: [companyId], references: [id])
   
-  // DDSs criados por este usuário
+  // Treinamentos e avaliações criados
   meetings   Meeting[]
+  quizzes    Quiz[]
 }
 
 // =========================================================================
@@ -72,25 +74,32 @@ model User {
 // =========================================================================
 
 model Meeting {
-  id              String       @id @default(uuid())
-  topic           String       // Tema do Treinamento de Segurança
-  farm            String       // Local / Fazenda / Galpão / Setor
-  type            String       @default("PRESENTIAL") // PRESENTIAL ou REMOTE
-  objective       String?      // Descrição do Objetivo do Treinamento
-  teamPhotos      String?      // Fotos da Equipe em JSON (Base64)
-  status          String       @default("LIVE") // LIVE ou ENDED
-  createdAt       DateTime     @default(now())
-  inviteExpiresAt DateTime?    // Expiração de links
-  inviteToken     String?      // Token do link da reunião
+  id                  String       @id @default(uuid())
+  topic               String       // Tema do Treinamento de Segurança
+  farm                String       // Local / Fazenda / Galpão / Setor
+  status              String       @default("LIVE") // LIVE ou ENDED
+  createdAt           DateTime     @default(now())
+  inviteExpiresAt     DateTime?
+  inviteToken         String?
+  organizerId         String?
+  organizer           User?        @relation(fields: [organizerId], references: [id])
+  companyId           String?
+  company             Company?     @relation(fields: [companyId], references: [id])
+  type                String?      @default("REMOTE") // REMOTE ou PRESENTIAL
+  groupPhoto          String?
+  objective           String?
+  programmaticContent String?
+  endedAt             DateTime?
+  instructorName      String?
+  classification      String?      @default("DDS")
+  documentHash        String?
   
-  // Relacionamento com o Organizador e Empresa
-  organizerId     String?
-  organizer       User?        @relation(fields: [organizerId], references: [id])
-  companyId       String?
-  company         Company?     @relation(fields: [companyId], references: [id])
-  
-  // Presenças registradas neste DDS
-  attendees       Attendance[]
+  attendees           Attendance[]
+  attachments         MeetingAttachment[]
+  quizzes             Quiz[]
+
+  @@index([organizerId, status, createdAt(sort: Desc)])
+  @@index([companyId])
 }
 
 // =========================================================================
@@ -103,37 +112,155 @@ model Attendance {
   cpf           String    // CPF com máscara
   selfie        String    // Imagem Base64 da Biometria Facial
   signature     String    // Imagem Base64 da Assinatura Digital
-  status        String    @default("ADMITTED") // ADMITTED, PENDING, REJECTED
   exitReason    String?   // Justificativa em caso de Saída Antecipada
-  exitSignature String?   // Imagem Base64 da Assinatura Manual de Saída
-  leftAt        DateTime? // Horário exato em que o colaborador saiu
+  exitSignature String?   // Imagem Base64 da Assinatura de Saída
+  leftAt        DateTime? // Horário exato de saída
   createdAt     DateTime  @default(now())
   
-  // Vinculação com o DDS
   meetingId     String
-  meeting       Meeting   @relation(fields: [meetingId], references: [id])
+  meeting       Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  
+  quizAttempts  QuizAttempt[]
+  quizProofHash String?
+
+  @@index([meetingId, createdAt])
 }
 
 // =========================================================================
-// 5. TABELA DE AUDITORIA DE ALTERAÇÕES
+// 5. ANEXOS DE REUNIÃO / DDS
+// =========================================================================
+
+model MeetingAttachment {
+  id          String   @id @default(uuid())
+  fileName    String
+  displayName String?
+  description String?
+  mimeType    String
+  fileSize    Int
+  fileData    String
+  pageCount   Int?     @default(1)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  meetingId   String
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, order])
+}
+
+// =========================================================================
+// 6. QUESTIONÁRIOS E AVALIAÇÕES DE EFICÁCIA
+// =========================================================================
+
+model Quiz {
+  id            String         @id @default(uuid())
+  meetingId     String?
+  meeting       Meeting?       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  creatorId     String?
+  creator       User?          @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  title         String
+  status        String         @default("DRAFT") // DRAFT, PUBLISHED, CLOSED
+  passingScore  Int            @default(70)
+  criticalBelow Int            @default(40)
+  excellentFrom Int            @default(90)
+  shareToken    String         @unique @default(uuid())
+  isTemplate    Boolean        @default(false)
+  templateId    String?
+  showRanking   Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  publishedAt   DateTime?
+  closedAt      DateTime?
+  
+  questions     QuizQuestion[]
+  attempts      QuizAttempt[]
+
+  @@index([meetingId])
+  @@index([creatorId])
+  @@index([isTemplate])
+  @@index([templateId])
+}
+
+model QuizQuestion {
+  id          String       @id @default(uuid())
+  quizId      String
+  quiz        Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  text        String
+  type        String       @default("SINGLE_CHOICE")
+  weight      Int          @default(1)
+  position    Int
+  explanation String?
+  options     QuizOption[]
+  answers     QuizAnswer[]
+
+  @@index([quizId, position])
+}
+
+model QuizOption {
+  id         String       @id @default(uuid())
+  questionId String
+  question   QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean      @default(false)
+  position   Int
+
+  @@index([questionId, position])
+}
+
+model QuizAttempt {
+  id               String       @id @default(uuid())
+  quizId           String
+  quiz             Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  attendanceId     String?
+  attendance       Attendance?  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  participantName  String?
+  participantDoc   String?
+  score            Float
+  earnedPoints     Int
+  possiblePoints   Int
+  passed           Boolean
+  level            String       // EXCELLENT, PASS, CRITICAL
+  submittedAt      DateTime     @default(now())
+  timeSpentSeconds Int?         // Tempo em segundos para desempate
+  answers          QuizAnswer[]
+
+  @@index([quizId, submittedAt])
+  @@index([attendanceId])
+}
+
+model QuizAnswer {
+  id                String       @id @default(uuid())
+  attemptId         String
+  attempt           QuizAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId        String
+  question          QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptionIds Json
+  correct           Boolean
+  earnedPoints      Int
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+}
+
+// =========================================================================
+// 7. TABELA DE AUDITORIA DE ALTERAÇÕES ADMINISTRATIVAS (AuditLog)
 // =========================================================================
 
 model AuditLog {
-  id              String    @id @default(uuid())
-  action          String    // Ex: "UPDATE_COLLABORATOR_NAME", "USER_STATUS_UPDATED"
-  entityType      String    // Ex: "User", "Attendance", "Company"
-  entityId        String    // ID do registro afetado
-  adminId         String?   // ID do admin que realizou a ação
-  adminName       String?   // Nome do admin
-  companyId       String?   // ID da empresa
-  previousValue   String?   // Valor anterior (ex: Nome anterior ou JSON)
-  newValue        String?   // Novo valor (ex: Nome corrigido ou JSON)
-  details         String?   // Metadados adicionais em formato JSON
-  ipAddress       String?   // IP de origem
-  userAgent       String?   // Dispositivo / Navegador
-  createdAt       DateTime  @default(now())
+  id            String    @id @default(uuid())
+  action        String    // Ex: "UPDATE_COLLABORATOR_NAME", "USER_STATUS_UPDATED"
+  entityType    String    @default("User")
+  entityId      String    // ID do registro afetado
+  adminId       String?   // ID do admin que realizou a ação
+  adminName     String?   // Nome do admin
+  companyId     String?   // ID da empresa
+  previousValue String?   // Valor anterior (ex: Nome anterior ou JSON)
+  newValue      String?   // Novo valor (ex: Nome corrigido ou JSON)
+  details       String?   // Metadados adicionais em formato JSON
+  ipAddress     String?   // IP de origem
+  userAgent     String?   // Dispositivo / Navegador
+  createdAt     DateTime  @default(now())
 
   @@index([entityId])
   @@index([action])
   @@index([companyId])
-}
+  @@index([createdAt])
+}

@@ -352,3 +352,122 @@ export function generateConsolidatedDdsPdf(report: ConsolidatedReportData) {
 
   doc.save(`DDS_ON_MASTER_Global_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
+
+export interface BiExecutiveReportData {
+  period: string;
+  generatedBy: string;
+  totalCompanies: number;
+  activeCompanies: number;
+  totalUsers: number;
+  totalMeetings: number;
+  totalAttendees: number;
+  totalQuizzes: number;
+  totalAttempts: number;
+  avgScore: number;
+  approvalRate: number;
+  companyComparison: Array<{
+    name: string;
+    usersCount: number;
+    meetingsCount: number;
+    attendeesCount: number;
+    quizzesCount: number;
+  }>;
+}
+
+export function generateExecutiveBiPdf(data: BiExecutiveReportData) {
+  const doc = new jsPDF();
+
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, 210, 28, 'F');
+  doc.setFillColor(22, 163, 74);
+  doc.rect(0, 26, 210, 2, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(15);
+  doc.setFont('helvetica', 'bold');
+  doc.text('DDS ON MASTER • RELATÓRIO EXECUTIVO DE BI & KPIS', 14, 14);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(134, 239, 172);
+  doc.text(`CONSOLIDADO MULTI-TENANT • PERÍODO: ${data.period.toUpperCase()} • EMISSÃO: ${new Date().toLocaleDateString('pt-BR')}`, 14, 20);
+
+  // Cards de Indicadores
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, 34, 58, 22, 2, 2, 'F');
+  doc.roundedRect(76, 34, 58, 22, 2, 2, 'F');
+  doc.roundedRect(138, 34, 58, 22, 2, 2, 'F');
+
+  doc.setTextColor(100, 116, 139);
+  doc.setFontSize(7.5);
+  doc.text('EMPRESAS & TÉCNICOS', 18, 40);
+  doc.text('TREINAMENTOS & PRESENÇAS', 80, 40);
+  doc.text('AVALIAÇÕES & APROVEITAMENTO', 142, 40);
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`${data.activeCompanies} / ${data.totalCompanies} empresas`, 18, 47);
+  doc.text(`${data.totalMeetings} DDSs • ${data.totalAttendees} p.`, 80, 47);
+  doc.text(`${data.avgScore} pts (${data.approvalRate}% aprov.)`, 142, 47);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text(`${data.totalUsers} usuários cadastrados`, 18, 52);
+  doc.text('Presenças 100% auditadas', 80, 52);
+  doc.text(`${data.totalQuizzes} avaliações • ${data.totalAttempts} resp.`, 142, 52);
+
+  const tableData = data.companyComparison.map((c, i) => [
+    `#${i + 1}`,
+    c.name,
+    c.usersCount,
+    c.meetingsCount,
+    c.attendeesCount,
+    c.quizzesCount,
+    c.meetingsCount > 0 ? (c.attendeesCount / c.meetingsCount).toFixed(1) : '0'
+  ]);
+
+  autoTable(doc, {
+    startY: 62,
+    head: [['Pos', 'Empresa / Fazenda', 'Técnicos', 'DDSs', 'Presenças', 'Avaliações', 'Média/DDS']],
+    body: tableData,
+    theme: 'striped',
+    headStyles: {
+      fillColor: [21, 128, 61],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8
+    },
+    styles: {
+      fontSize: 8,
+      cellPadding: 3
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 65 },
+      2: { cellWidth: 20, halign: 'center' },
+      3: { cellWidth: 20, halign: 'center' },
+      4: { cellWidth: 25, halign: 'center' },
+      5: { cellWidth: 24, halign: 'center' },
+      6: { cellWidth: 24, halign: 'center' }
+    }
+  });
+
+  const docInternal = doc.internal as unknown as { getNumberOfPages: () => number, pageSize: { height: number } };
+  const pageCount = docInternal.getNumberOfPages();
+
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `DDS ON MASTER • Relatório Executivo Multi-Tenant (amtst.vercel.app) | Página ${i} de ${pageCount}`,
+      105,
+      docInternal.pageSize.height - 8,
+      { align: 'center' }
+    );
+  }
+
+  doc.save(`DDS_ON_MASTER_BI_Executivo_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
