@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { randomBytes } from 'crypto';
+import {
+  MASTER_SESSION_COOKIE,
+  MASTER_SESSION_TTL_SECONDS,
+  createMasterSessionToken,
+  verifyMasterSessionToken,
+} from '@/lib/masterSession';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -46,18 +51,26 @@ export async function POST(req: Request) {
         email: MASTER_EMAIL,
         name: 'Alexandre Machado',
         role: 'SUPER_ADMIN_MASTER',
-        token: randomBytes(32).toString('hex'),
+        token: 'cookie',
         authenticatedAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
       };
 
       console.info(`[ADMIN_AUTH] Login mestre autorizado para ${cleanEmail} em ${new Date().toISOString()}`);
 
-      return NextResponse.json({
+      const res = NextResponse.json({
         success: true,
         message: 'Autenticação mestre realizada com sucesso.',
         session
       });
+      res.cookies.set(MASTER_SESSION_COOKIE, await createMasterSessionToken(MASTER_EMAIL), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: MASTER_SESSION_TTL_SECONDS,
+      });
+      return res;
     }
 
     console.warn(`[ADMIN_AUTH] Tentativa de login mestre inválida para ${cleanEmail} em ${new Date().toISOString()}`);
@@ -76,9 +89,12 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  // Verificação de sessão mestre
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader) {
+  // Verificação de sessão mestre (cookie HttpOnly)
+  const cookieHeader = req.headers.get('cookie') || '';
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${MASTER_SESSION_COOKIE}=([^;]+)`));
+  const session = await verifyMasterSessionToken(match ? decodeURIComponent(match[1]) : null);
+
+  if (!session) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
@@ -87,4 +103,11 @@ export async function GET(req: Request) {
     role: 'SUPER_ADMIN_MASTER',
     status: 'ACTIVE'
   });
+}
+
+export async function DELETE() {
+  // Logout: remove o cookie de sessão
+  const res = NextResponse.json({ success: true });
+  res.cookies.set(MASTER_SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+  return res;
 }

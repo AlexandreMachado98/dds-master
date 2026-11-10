@@ -285,7 +285,8 @@ export default function MasterDashboard() {
     showToast('Dados consolidados atualizados com sucesso.', 'success');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await fetch('/api/master/auth', { method: 'DELETE' }).catch(() => {});
     localStorage.removeItem('dds_master_session');
     router.push('/login');
   };
