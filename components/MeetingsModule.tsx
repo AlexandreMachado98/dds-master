@@ -11,9 +11,21 @@ import {
   RefreshCw,
   Loader2,
   FileText,
-  FileDown
+  FileDown,
+  StopCircle,
+  Clock
 } from 'lucide-react';
 import { generateDdsPdf } from '@/lib/pdfGenerator';
+
+// DDS aberto há mais que isso é destacado como provavelmente esquecido
+const FORGOTTEN_AFTER_HOURS = 12;
+
+function formatOpenDuration(createdAt: string): { label: string; hours: number } {
+  const hours = (Date.now() - new Date(createdAt).getTime()) / 3_600_000;
+  if (hours < 1) return { label: `${Math.max(1, Math.round(hours * 60))} min`, hours };
+  if (hours < 48) return { label: `${Math.floor(hours)} h`, hours };
+  return { label: `${Math.floor(hours / 24)} dias`, hours };
+}
 
 interface MeetingItem {
   id: string;
@@ -38,6 +50,8 @@ export default function MeetingsModule() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
+  const [endingId, setEndingId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchMeetings = useCallback(async () => {
     setLoading(true);
@@ -62,6 +76,45 @@ export default function MeetingsModule() {
   useEffect(() => {
     fetchMeetings();
   }, [fetchMeetings]);
+
+  const handleEndMeeting = async (m: MeetingItem) => {
+    if (endingId) return;
+    const organizer = m.organizer?.name || m.instructorName;
+    const ok = window.confirm(
+      `Encerrar o DDS "${m.topic}"?\n\n` +
+        `Empresa: ${m.company?.name || 'não vinculada'}\n` +
+        `Organizador: ${organizer}\n` +
+        `Aberto há: ${formatOpenDuration(m.createdAt).label}\n` +
+        `Presentes: ${m.attendeesCount}\n\n` +
+        'A lista de presença será fechada e ninguém mais poderá assinar. A ata continua disponível no histórico.'
+    );
+    if (!ok) return;
+
+    setEndingId(m.id);
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/master/dds', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meetingId: m.id, action: 'end_meeting' })
+      });
+      const data = await res.json().catch(() => ({ success: false, error: 'Resposta inválida do servidor.' }));
+      if (res.ok && data.success) {
+        setMeetings((prev) =>
+          prev.map((x) =>
+            x.id === m.id ? { ...x, status: 'ENDED', endedAt: data.meeting?.endedAt || new Date().toISOString() } : x
+          )
+        );
+        setFeedback({ type: 'success', text: data.message || 'DDS encerrado.' });
+      } else {
+        setFeedback({ type: 'error', text: data.error || 'Não foi possível encerrar o DDS.' });
+      }
+    } catch {
+      setFeedback({ type: 'error', text: 'Falha de conexão ao encerrar o DDS.' });
+    } finally {
+      setEndingId(null);
+    }
+  };
 
   const handleDownloadAta = (m: MeetingItem) => {
     generateDdsPdf({
@@ -140,6 +193,18 @@ export default function MeetingsModule() {
         </div>
       </div>
 
+      {feedback && (
+        <div
+          className={`px-4 py-3 rounded-2xl text-xs font-bold border ${
+            feedback.type === 'success'
+              ? 'bg-green-500/10 text-green-300 border-green-500/30'
+              : 'bg-red-500/10 text-red-300 border-red-500/30'
+          }`}
+        >
+          {feedback.text}
+        </div>
+      )}
+
       {/* Listagem */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
         {loading ? (
@@ -177,6 +242,22 @@ export default function MeetingsModule() {
                     <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
                       {m.type === 'REMOTE' ? '📹 AO VIVO' : '👥 CAMPO'}
                     </span>
+                    {m.status === 'LIVE' && (() => {
+                      const open = formatOpenDuration(m.createdAt);
+                      const forgotten = open.hours >= FORGOTTEN_AFTER_HOURS;
+                      return (
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-1 ${
+                            forgotten
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}
+                          title={forgotten ? 'Aberto há muito tempo: provavelmente esquecido' : undefined}
+                        >
+                          <Clock size={10} /> ABERTO HÁ {open.label.toUpperCase()}
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   <h3 className="font-bold text-white text-sm truncate">{m.topic}</h3>
@@ -203,6 +284,22 @@ export default function MeetingsModule() {
                       {m.quizzesCount > 0 ? `${m.quizzesCount} avaliação vinculada` : 'Sem questionário'}
                     </span>
                   </div>
+
+                  {m.status === 'LIVE' && (
+                    <button
+                      onClick={() => handleEndMeeting(m)}
+                      disabled={endingId !== null}
+                      className="px-3.5 py-2 bg-red-600/10 hover:bg-red-600/20 text-red-300 border border-red-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                      title="Encerrar este DDS e fechar a lista de presença"
+                    >
+                      {endingId === m.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <StopCircle size={14} />
+                      )}
+                      <span>Encerrar</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => handleDownloadAta(m)}
