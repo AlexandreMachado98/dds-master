@@ -1,3 +1,10 @@
+// =========================================================================
+// ATENÇÃO: este schema espelha o do DDS Online (repositório ddsonline), que é
+// o DONO das migrações do banco compartilhado. NÃO rode `prisma db push` nem
+// `prisma migrate` a partir do DDS Master. Para atualizar, copie o schema do
+// ddsonline e mantenha apenas o modelo AuditLog abaixo (exclusivo do Master).
+// =========================================================================
+
 generator client {
   provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x", "rhel-openssl-1.0.x"]
@@ -9,126 +16,127 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// =========================================================================
-// ENUMS: PERMISSÕES E STATUS DE CONTAS
-// =========================================================================
-
 enum Role {
-  SUPER_ADMIN      // Administrador Master da Plataforma
-  COMPANY_ADMIN    // Gestor da Fazenda / Empresa
-  ORGANIZER        // Técnico em Segurança do Trabalho
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  ORGANIZER
 }
 
 enum Status {
-  ACTIVE           // Conta liberada para criar e gerenciar DDS
-  PENDING_APPROVAL // Conta aguardando aprovação na fila do DDS MASTER
-  SUSPENDED        // Empresa ou técnico suspenso (Kill-switch ativado)
-  BLOCKED          // Acesso recusado / banido
+  ACTIVE
+  PENDING_APPROVAL
+  SUSPENDED
+  BLOCKED
 }
-
-// =========================================================================
-// 1. TABELA DE EMPRESAS / FAZENDAS CLIENTES (Multi-Tenant)
-// =========================================================================
 
 model Company {
-  id                 String    @id @default(uuid())
-  name               String    // Nome da Empresa ou Fazenda
-  document           String?   // CNPJ ou CPF do Produtor
-  status             Status    @default(ACTIVE) // Controle de Bloqueio da Empresa
-  secretKey          String?   // Palavra-Chave para cadastro instantâneo de técnicos
-  autoApproveWithKey Boolean   @default(true)
-  createdAt          DateTime  @default(now())
-  
-  // Relacionamentos
-  users              User[]
-  meetings           Meeting[]
-}
+  id                 String   @id @default(uuid())
+  name               String
+  document           String?
+  status             Status   @default(ACTIVE)
+  secretKey          String?
+  autoApproveWithKey Boolean  @default(true)
+  createdAt          DateTime @default(now())
 
-// =========================================================================
-// 2. TABELA DE USUÁRIOS / TÉCNICOS / ORGANIZADORES
-// =========================================================================
+  users        User[]
+  meetings     Meeting[]
+  actionPlans  ActionPlan[]
+  competitions Competition[]
+}
 
 model User {
-  id         String    @id @default(uuid())
-  name       String    // Nome Completo do Técnico/Gestor
-  email      String    @unique
-  password   String    // Senha de Acesso (hash bcrypt)
-  role       Role      @default(ORGANIZER)
-  status     Status    @default(ACTIVE)
-  position   String?   @default("Técnico em Segurança do Trabalho")
-  company    String?   // Nome descritivo da empresa/unidade
-  photoURL   String?
-  createdAt  DateTime  @default(now())
-  
-  // Vinculação com a Empresa
-  companyId  String?
-  companyRel Company?  @relation(fields: [companyId], references: [id])
-  
-  // Treinamentos e avaliações criados
-  meetings   Meeting[]
-  quizzes    Quiz[]
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(ORGANIZER)
+  status    Status   @default(ACTIVE)
+  position  String?  @default("Técnico em Segurança do Trabalho")
+  company   String?
+  photoURL  String?
+  createdAt DateTime @default(now())
+
+  companyId             String?
+  companyRel            Company?      @relation(fields: [companyId], references: [id])
+  meetings              Meeting[]
+  quizzes               Quiz[]
+  organizedCompetitions Competition[]
+
+  // Relações do Módulo de Planos de Ação
+  createdActionPlans       ActionPlan[]                  @relation("ActionPlanCreator")
+  responsibleActionPlans   ActionPlan[]                  @relation("ActionPlanResponsible")
+  supervisedActionPlans    ActionPlan[]                  @relation("ActionPlanSupervisor")
+  verifierActionPlans      ActionPlan[]                  @relation("ActionPlanVerifier")
+  taskResponsibilities     ActionPlanTask[]              @relation("TaskResponsible")
+  actionPlanAttachments    ActionPlanAttachment[]        @relation("AttachmentAuthor")
+  actionPlanComments       ActionPlanComment[]           @relation("CommentAuthor")
+  actionPlanHistoryEntries ActionPlanHistory[]           @relation("HistoryUser")
+  extensionRequests        ActionPlanDeadlineExtension[] @relation("ExtensionRequester")
+  extensionApprovals       ActionPlanDeadlineExtension[] @relation("ExtensionApprover")
+  actionPlanVerifications  ActionPlanVerification[]      @relation("VerificationVerifier")
+  actionPlanNotifications  ActionPlanNotification[]      @relation("NotificationUser")
 }
 
-// =========================================================================
-// 3. TABELA DE REUNIÕES (DDS Presencial e Remoto)
-// =========================================================================
-
 model Meeting {
-  id                  String       @id @default(uuid())
-  topic               String       // Tema do Treinamento de Segurança
-  farm                String       // Local / Fazenda / Galpão / Setor
-  status              String       @default("LIVE") // LIVE ou ENDED
-  createdAt           DateTime     @default(now())
-  inviteExpiresAt     DateTime?
-  inviteToken         String?
-  organizerId         String?
-  organizer           User?        @relation(fields: [organizerId], references: [id])
-  companyId           String?
-  company             Company?     @relation(fields: [companyId], references: [id])
-  type                String?      @default("REMOTE") // REMOTE ou PRESENTIAL
-  groupPhoto          String?
-  objective           String?
-  programmaticContent String?
-  endedAt             DateTime?
-  instructorName      String?
-  classification      String?      @default("DDS")
-  documentHash        String?
-  
-  attendees           Attendance[]
-  attachments         MeetingAttachment[]
-  quizzes             Quiz[]
+  id                       String                       @id @default(uuid())
+  topic                    String
+  farm                     String
+  status                   String                       @default("LIVE")
+  createdAt                DateTime                     @default(now())
+  inviteExpiresAt          DateTime?
+  inviteToken              String?
+  organizerId              String?
+  organizer                User?                        @relation(fields: [organizerId], references: [id])
+  companyId                String?
+  company                  Company?                     @relation(fields: [companyId], references: [id])
+  type                     String?                      @default("REMOTE")
+  groupPhoto               String?
+  objective                String?
+  programmaticContent      String?
+  endedAt                  DateTime?
+  instructorName           String?
+  classification           String?                      @default("DDS")
+  documentHash             String?
+  attendanceCollectionOpen Boolean                      @default(false)
+  attendees                Attendance[]
+  attendanceWindows        AttendanceCollectionWindow[]
+  attachments              MeetingAttachment[]
+  quizzes                  Quiz[]
+  actionPlans              ActionPlan[]
 
   @@index([organizerId, status, createdAt(sort: Desc)])
   @@index([companyId])
 }
 
-// =========================================================================
-// 4. TABELA DE PRESENÇAS, BIOMETRIA E REGISTRO DE SAÍDA
-// =========================================================================
+model AttendanceCollectionWindow {
+  id         String    @id @default(uuid())
+  meetingId  String
+  meeting    Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  openedAt   DateTime  @default(now())
+  openedById String
+  closedAt   DateTime?
+
+  @@index([meetingId, openedAt])
+}
 
 model Attendance {
-  id            String    @id @default(uuid())
-  name          String    // Nome Completo do Colaborador
-  cpf           String    // CPF com máscara
-  selfie        String    // Imagem Base64 da Biometria Facial
-  signature     String    // Imagem Base64 da Assinatura Digital
-  exitReason    String?   // Justificativa em caso de Saída Antecipada
-  exitSignature String?   // Imagem Base64 da Assinatura de Saída
-  leftAt        DateTime? // Horário exato de saída
-  createdAt     DateTime  @default(now())
-  
+  id            String        @id @default(uuid())
+  name          String
+  cpf           String
+  selfie        String
+  signature     String
+  registration  String? // Matrícula informada pelo colaborador na assinatura do DDS
+  exitReason    String?
+  exitSignature String?
+  leftAt        DateTime?
+  createdAt     DateTime      @default(now())
   meetingId     String
-  meeting       Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  
+  meeting       Meeting       @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   quizAttempts  QuizAttempt[]
   quizProofHash String?
 
   @@index([meetingId, createdAt])
 }
-
-// =========================================================================
-// 5. ANEXOS DE REUNIÃO / DDS
-// =========================================================================
 
 model MeetingAttachment {
   id          String   @id @default(uuid())
@@ -147,10 +155,6 @@ model MeetingAttachment {
   @@index([meetingId, order])
 }
 
-// =========================================================================
-// 6. QUESTIONÁRIOS E AVALIAÇÕES DE EFICÁCIA
-// =========================================================================
-
 model Quiz {
   id            String         @id @default(uuid())
   meetingId     String?
@@ -158,7 +162,7 @@ model Quiz {
   creatorId     String?
   creator       User?          @relation(fields: [creatorId], references: [id], onDelete: SetNull)
   title         String
-  status        String         @default("DRAFT") // DRAFT, PUBLISHED, CLOSED
+  status        String         @default("DRAFT")
   passingScore  Int            @default(70)
   criticalBelow Int            @default(40)
   excellentFrom Int            @default(90)
@@ -169,7 +173,6 @@ model Quiz {
   createdAt     DateTime       @default(now())
   publishedAt   DateTime?
   closedAt      DateTime?
-  
   questions     QuizQuestion[]
   attempts      QuizAttempt[]
 
@@ -206,24 +209,26 @@ model QuizOption {
 }
 
 model QuizAttempt {
-  id               String       @id @default(uuid())
-  quizId           String
-  quiz             Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
-  attendanceId     String?
-  attendance       Attendance?  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
-  participantName  String?
-  participantDoc   String?
-  score            Float
-  earnedPoints     Int
-  possiblePoints   Int
-  passed           Boolean
-  level            String       // EXCELLENT, PASS, CRITICAL
-  submittedAt      DateTime     @default(now())
-  timeSpentSeconds Int?         // Tempo em segundos para desempate
-  answers          QuizAnswer[]
+  id                      String       @id @default(uuid())
+  quizId                  String
+  quiz                    Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  attendanceId            String?
+  attendance              Attendance?  @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  participantName         String?
+  participantDoc          String?
+  participantRegistration String? // matrícula de 4 dígitos; nulo para respostas históricas
+  score                   Float
+  earnedPoints            Int
+  possiblePoints          Int
+  passed                  Boolean
+  level                   String
+  submittedAt             DateTime     @default(now())
+  timeSpentSeconds        Int?
+  answers                 QuizAnswer[]
 
   @@index([quizId, submittedAt])
   @@index([attendanceId])
+  @@index([participantRegistration])
 }
 
 model QuizAnswer {
@@ -241,23 +246,330 @@ model QuizAnswer {
 }
 
 // =========================================================================
+// MÓDULO DE PLANOS DE AÇÃO (SST / QUALIDADE / NÃO CONFORMIDADES)
+// =========================================================================
+
+enum ActionPlanStatus {
+  OPEN
+  IN_PROGRESS
+  AWAITING_VALIDATION
+  COMPLETED
+  SUSPENDED
+  CANCELLED
+  REOPENED
+}
+
+enum ActionPlanPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ActionPlanOrigin {
+  DDS
+  INSPECTION
+  AUDIT
+  NON_CONFORMITY
+  INCIDENT
+  ACCIDENT
+  PREVENTIVE_OBSERVATION
+  QUESTIONNAIRE
+  OTHER
+}
+
+enum ActionPlanCriticality {
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+}
+
+enum VerificationResult {
+  EFFECTIVE
+  PARTIALLY_EFFECTIVE
+  INEFFECTIVE
+  PENDING
+}
+
+model ActionPlan {
+  id                 String                @id @default(uuid())
+  code               String                @unique
+  title              String
+  description        String?
+  companyId          String
+  company            Company               @relation(fields: [companyId], references: [id])
+  sector             String?
+  location           String?
+  identificationDate DateTime              @default(now())
+  origin             ActionPlanOrigin      @default(OTHER)
+  originReferenceId  String?
+  meetingId          String?
+  meeting            Meeting?              @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  category           String?
+  criticality        ActionPlanCriticality @default(MEDIUM)
+  status             ActionPlanStatus      @default(OPEN)
+  priority           ActionPlanPriority    @default(MEDIUM)
+
+  // Descrição do problema / Investigação
+  problemDescription    String?
+  identifiedRisk        String?
+  potentialConsequences String?
+  identifiedCause       String?
+  rootCause             String?
+  immediateMeasures     String?
+  additionalNotes       String?
+
+  // Ação proposta (5W2H)
+  actionDescription  String?
+  actionObjective    String?
+  expectedResult     String?
+  requiredResources  String?
+  completionCriteria String?
+
+  // Atribuições e Responsáveis
+  creatorId     String
+  creator       User    @relation("ActionPlanCreator", fields: [creatorId], references: [id])
+  responsibleId String?
+  responsible   User?   @relation("ActionPlanResponsible", fields: [responsibleId], references: [id])
+  supervisorId  String?
+  supervisor    User?   @relation("ActionPlanSupervisor", fields: [supervisorId], references: [id])
+  verifierId    String?
+  verifier      User?   @relation("ActionPlanVerifier", fields: [verifierId], references: [id])
+
+  // Prazos e Datas
+  startDate       DateTime?
+  dueDate         DateTime?
+  completedAt     DateTime?
+  originalDueDate DateTime?
+
+  // Controle inteligente de alertas (dias antes)
+  alertDaysBefore Int @default(7)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relações do plano
+  tasks         ActionPlanTask[]
+  attachments   ActionPlanAttachment[]
+  comments      ActionPlanComment[]
+  history       ActionPlanHistory[]
+  extensions    ActionPlanDeadlineExtension[]
+  verification  ActionPlanVerification?
+  notifications ActionPlanNotification[]
+
+  @@index([companyId])
+  @@index([creatorId])
+  @@index([responsibleId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([createdAt])
+  @@index([companyId, status])
+  @@index([companyId, responsibleId])
+  @@index([companyId, dueDate])
+}
+
+model ActionPlanTask {
+  id            String           @id @default(uuid())
+  actionPlanId  String
+  actionPlan    ActionPlan       @relation(fields: [actionPlanId], references: [id], onDelete: Cascade)
+  description   String
+  responsibleId String?
+  responsible   User?            @relation("TaskResponsible", fields: [responsibleId], references: [id])
+  dueDate       DateTime?
+  status        ActionPlanStatus @default(OPEN)
+  weight        Int              @default(1)
+  notes         String?
+  position      Int              @default(0)
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  attachments ActionPlanAttachment[]
+
+  @@index([actionPlanId, position])
+  @@index([responsibleId])
+}
+
+model ActionPlanAttachment {
+  id           String          @id @default(uuid())
+  actionPlanId String?
+  actionPlan   ActionPlan?     @relation(fields: [actionPlanId], references: [id], onDelete: Cascade)
+  taskId       String?
+  task         ActionPlanTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileName     String
+  displayName  String?
+  mimeType     String
+  fileSize     Int
+  fileData     String
+  caption      String?
+  evidenceType String? // BEFORE, DURING, AFTER, COMPLEMENTARY
+  authorId     String?
+  author       User?           @relation("AttachmentAuthor", fields: [authorId], references: [id])
+  notes        String?
+  createdAt    DateTime        @default(now())
+
+  @@index([actionPlanId])
+  @@index([taskId])
+}
+
+model ActionPlanComment {
+  id           String     @id @default(uuid())
+  actionPlanId String
+  actionPlan   ActionPlan @relation(fields: [actionPlanId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User       @relation("CommentAuthor", fields: [authorId], references: [id])
+  content      String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([actionPlanId, createdAt])
+}
+
+model ActionPlanHistory {
+  id            String     @id @default(uuid())
+  actionPlanId  String
+  actionPlan    ActionPlan @relation(fields: [actionPlanId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User       @relation("HistoryUser", fields: [userId], references: [id])
+  action        String // CREATED, EDITED, STATUS_CHANGED, DEADLINE_CHANGED, RESPONSIBLE_CHANGED, PHOTO_ADDED, PHOTO_REMOVED, COMMENT_ADDED, EXTENSION_REQUESTED, EXTENSION_APPROVED, EXTENSION_REJECTED, REOPENED, COMPLETED, VERIFIED
+  previousValue String?
+  newValue      String?
+  details       String?
+  createdAt     DateTime   @default(now())
+
+  @@index([actionPlanId, createdAt])
+}
+
+model ActionPlanDeadlineExtension {
+  id               String     @id @default(uuid())
+  actionPlanId     String
+  actionPlan       ActionPlan @relation(fields: [actionPlanId], references: [id], onDelete: Cascade)
+  requesterId      String
+  requester        User       @relation("ExtensionRequester", fields: [requesterId], references: [id])
+  currentDueDate   DateTime
+  requestedDueDate DateTime
+  justification    String
+  evidenceData     String?
+  status           String     @default("PENDING") // PENDING, APPROVED, REJECTED
+  approverId       String?
+  approver         User?      @relation("ExtensionApprover", fields: [approverId], references: [id])
+  approvalNotes    String?
+  approvedAt       DateTime?
+  createdAt        DateTime   @default(now())
+
+  @@index([actionPlanId])
+  @@index([status])
+}
+
+model ActionPlanVerification {
+  id           String             @id @default(uuid())
+  actionPlanId String             @unique
+  actionPlan   ActionPlan         @relation(fields: [actionPlanId], references: [id], onDelete: Cascade)
+  verifierId   String
+  verifier     User               @relation("VerificationVerifier", fields: [verifierId], references: [id])
+  result       VerificationResult @default(PENDING)
+  evidenceData String?
+  notes        String?
+  verifiedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+model ActionPlanNotification {
+  id           String     @id @default(uuid())
+  actionPlanId String
+  actionPlan   ActionPlan @relation(fields: [actionPlanId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation("NotificationUser", fields: [userId], references: [id])
+  type         String // NEW_ASSIGNMENT, DUE_APPROACHING, OVERDUE, RESPONSIBLE_CHANGED, EXTENSION_REQUESTED, SENT_FOR_VALIDATION, APPROVED, RETURNED
+  title        String
+  message      String
+  read         Boolean    @default(false)
+  readAt       DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([userId, read])
+  @@index([actionPlanId])
+  @@index([createdAt])
+}
+
+// =========================================================================
+// COMPETIÇÕES DE PARTICIPAÇÃO E DESEMPENHO
+// =========================================================================
+enum CompetitionStatus {
+  SCHEDULED
+  ACTIVE
+  FINISHED
+  CANCELLED
+}
+
+enum CompetitionEventType {
+  DDS_ATTENDANCE
+  QUIZ_PARTICIPATION
+  QUIZ_PERFORMANCE
+  QUIZ_SPEED
+}
+
+model Competition {
+  id                      String             @id @default(uuid())
+  name                    String
+  description             String?
+  startDate               DateTime
+  endDate                 DateTime
+  status                  CompetitionStatus  @default(SCHEDULED)
+  ddsAttendancePoints     Int                @default(10)
+  quizParticipationPoints Int                @default(5)
+  quizPerformancePoints   Int                @default(1) // pontos por ponto obtido no questionário
+  quizSpeedPoints         Int                @default(5) // bônus por conclusão em até 90 segundos
+  companyId               String
+  company                 Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organizerId             String
+  organizer               User               @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  events                  CompetitionEvent[]
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  @@index([companyId, status, startDate, endDate])
+  @@index([organizerId, createdAt])
+}
+
+model CompetitionEvent {
+  id                      String               @id @default(uuid())
+  competitionId           String
+  competition             Competition          @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  type                    CompetitionEventType
+  sourceId                String
+  participantRegistration String
+  participantName         String
+  points                  Int
+  details                 Json?
+  createdAt               DateTime             @default(now())
+
+  @@unique([competitionId, type, sourceId])
+  @@index([competitionId, participantRegistration])
+  @@index([competitionId, createdAt])
+}
+
+// =========================================================================
 // 7. TABELA DE AUDITORIA DE ALTERAÇÕES ADMINISTRATIVAS (AuditLog)
 // =========================================================================
 
 model AuditLog {
-  id            String    @id @default(uuid())
-  action        String    // Ex: "UPDATE_COLLABORATOR_NAME", "USER_STATUS_UPDATED"
-  entityType    String    @default("User")
-  entityId      String    // ID do registro afetado
-  adminId       String?   // ID do admin que realizou a ação
-  adminName     String?   // Nome do admin
-  companyId     String?   // ID da empresa
-  previousValue String?   // Valor anterior (ex: Nome anterior ou JSON)
-  newValue      String?   // Novo valor (ex: Nome corrigido ou JSON)
-  details       String?   // Metadados adicionais em formato JSON
-  ipAddress     String?   // IP de origem
-  userAgent     String?   // Dispositivo / Navegador
-  createdAt     DateTime  @default(now())
+  id            String   @id @default(uuid())
+  action        String // Ex: "UPDATE_COLLABORATOR_NAME", "USER_STATUS_UPDATED"
+  entityType    String   @default("User")
+  entityId      String // ID do registro afetado
+  adminId       String? // ID do admin que realizou a ação
+  adminName     String? // Nome do admin
+  companyId     String? // ID da empresa
+  previousValue String? // Valor anterior (ex: Nome anterior ou JSON)
+  newValue      String? // Novo valor (ex: Nome corrigido ou JSON)
+  details       String? // Metadados adicionais em formato JSON
+  ipAddress     String? // IP de origem
+  userAgent     String? // Dispositivo / Navegador
+  createdAt     DateTime @default(now())
 
   @@index([entityId])
   @@index([action])

@@ -149,7 +149,7 @@ export default function MasterLoginPage() {
                 disabled={loading}
                 value={masterKey}
                 onChange={(e) => setMasterKey(e.target.value)}
-                placeholder="AM2026"
+                placeholder="Chave de segurança"
                 className="w-full bg-slate-950/70 border border-slate-800 rounded-xl px-10 py-3 text-base sm:text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all uppercase font-mono disabled:opacity-50 min-h-[46px]"
               />
             </div>
