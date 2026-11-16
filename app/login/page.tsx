@@ -13,18 +13,14 @@ export default function MasterLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Já logado? Quem confirma é o servidor (cookie assinado), não o navegador.
   useEffect(() => {
-    try {
-      const sessionStr = localStorage.getItem('dds_master_session');
-      if (sessionStr) {
-        const session = JSON.parse(sessionStr);
-        if (session && session.role === 'SUPER_ADMIN_MASTER') {
-          router.push('/');
-        }
-      }
-    } catch {
-      localStorage.removeItem('dds_master_session');
-    }
+    fetch('/api/master/auth', { cache: 'no-store' })
+      .then(res => {
+        if (res.ok) router.push('/');
+        else { try { localStorage.removeItem('dds_master_session'); } catch {} }
+      })
+      .catch(() => {});
   }, [router]);
 
   const handleMasterLogin = async (e: React.FormEvent) => {
@@ -108,7 +104,7 @@ export default function MasterLoginPage() {
                 disabled={loading}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="alexandre@amtst.com.br"
+                placeholder="E-mail do administrador master"
                 className="w-full bg-slate-950/70 border border-slate-800 rounded-xl px-10 py-3 text-base sm:text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all disabled:opacity-50 min-h-[46px]"
               />
             </div>
@@ -140,7 +136,7 @@ export default function MasterLoginPage() {
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Chave de Segurança Mestre <span className="text-slate-500 font-normal">(Opcional)</span>
+              Chave de Segurança Mestre
             </label>
             <div className="relative flex items-center">
               <KeyRound className="absolute left-3.5 text-slate-500 pointer-events-none" size={17} />
@@ -149,7 +145,9 @@ export default function MasterLoginPage() {
                 disabled={loading}
                 value={masterKey}
                 onChange={(e) => setMasterKey(e.target.value)}
-                placeholder="AM2026"
+                required
+                autoComplete="off"
+                placeholder="Chave de segurança"
                 className="w-full bg-slate-950/70 border border-slate-800 rounded-xl px-10 py-3 text-base sm:text-sm text-white placeholder-slate-600 focus:ring-2 focus:ring-green-500 outline-none transition-all uppercase font-mono disabled:opacity-50 min-h-[46px]"
               />
             </div>

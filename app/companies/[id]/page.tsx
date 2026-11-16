@@ -29,10 +29,10 @@ export default async function CompanyDetailPage({ params }: PageProps) {
     where: { id: companyId },
     include: {
       users: {
-        include: {
-          _count: {
-            select: { meetings: true }
-          }
+        // Só os campos exibidos: nunca enviar o hash da senha para o navegador.
+        select: {
+          id: true, name: true, email: true, role: true, status: true, position: true, company: true, createdAt: true,
+          _count: { select: { meetings: true } }
         },
         orderBy: { createdAt: 'desc' }
       }
@@ -207,7 +207,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
         </div>
 
         {/* SEÇÃO 1: TABELA DE TÉCNICOS COM BOTÃO DE EXCLUSÃO E EDIÇÃO */}
-        <CompanyUserTable initialUsers={company.users} />
+        <CompanyUserTable initialUsers={company.users.map(u => ({ ...u, createdAt: u.createdAt.toISOString() }))} />
 
         {/* SEÇÃO 2: QUESTIONÁRIOS E AVALIAÇÕES DA EMPRESA */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 space-y-4 shadow-xl">

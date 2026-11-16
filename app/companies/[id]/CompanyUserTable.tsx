@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Users, Trash2, AlertTriangle, CheckCircle2, Info, Loader2, ShieldCheck, UserCheck, Pencil, X, Check } from 'lucide-react';
+import { Users, Ban, AlertTriangle, CheckCircle2, Info, Loader2, ShieldCheck, UserCheck, Pencil, X, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface UserItem {
@@ -90,12 +90,34 @@ export default function CompanyUserTable({ initialUsers }: { initialUsers: UserI
     }
   };
 
+  const handleChangeRole = async (userId: string, role: string) => {
+    setProcessingUserId(userId);
+    try {
+      const res = await fetch('/api/master', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_user_role', userId, role })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)));
+        showToast(data.message || 'Papel atualizado.', 'success');
+      } else {
+        showToast(data.error || 'Erro ao alterar o papel.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão com o servidor.', 'error');
+    } finally {
+      setProcessingUserId(null);
+    }
+  };
+
   const handleDeleteUser = (userId: string, userName: string) => {
     if (processingUserId === userId) return;
 
     setConfirmDialog({
-      title: 'Excluir Técnico da Plataforma',
-      message: `Tem certeza que deseja excluir permanentemente o técnico "${userName}"? Ele perderá imediatamente o acesso e todos os seus registros de DDS serão removidos.`,
+      title: 'Bloquear acesso do técnico',
+      message: `Bloquear o acesso de "${userName}"? Ele perde o acesso ao DDS-ON na hora. Os DDS, assinaturas e atas que ele registrou continuam guardados.`,
       onConfirm: async () => {
         setProcessingUserId(userId);
         try {
@@ -106,11 +128,11 @@ export default function CompanyUserTable({ initialUsers }: { initialUsers: UserI
           });
           const data = await res.json();
           if (data.success) {
-            setUsers((prev) => prev.filter((u) => u.id !== userId));
-            showToast('Técnico e registros excluídos com sucesso!', 'success');
+            setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, status: 'BLOCKED' } : u)));
+            showToast('Acesso bloqueado. Registros preservados.', 'success');
             router.refresh();
           } else {
-            showToast(data.error || 'Erro ao excluir.', 'error');
+            showToast(data.error || 'Erro ao bloquear.', 'error');
           }
         } catch {
           showToast('Erro de conexão com o servidor.', 'error');
@@ -302,6 +324,17 @@ export default function CompanyUserTable({ initialUsers }: { initialUsers: UserI
                   <div className="flex items-center justify-between pt-2 border-t border-slate-900 text-[11px] text-slate-500">
                     <span>Cadastrado em {new Date(user.createdAt).toLocaleDateString('pt-BR')}</span>
                     <div className="flex items-center gap-1.5">
+                      <select
+                        aria-label="Papel na empresa"
+                        value={user.role === 'COMPANY_ADMIN' ? 'COMPANY_ADMIN' : 'ORGANIZER'}
+                        disabled={isProcessing || user.role === 'SUPER_ADMIN'}
+                        onChange={(e) => handleChangeRole(user.id, e.target.value)}
+                        className="bg-slate-950 border border-slate-800 rounded-xl px-2 py-1.5 text-[11px] font-semibold text-slate-200"
+                        title="Papel no DDS-ON"
+                      >
+                        <option value="ORGANIZER">Organizador</option>
+                        <option value="COMPANY_ADMIN">Admin. da empresa</option>
+                      </select>
                       <button
                         onClick={() => handleOpenEditModal(user)}
                         className="px-2.5 py-1.5 bg-blue-500/10 hover:bg-blue-600 text-blue-400 hover:text-white rounded-xl transition-all border border-blue-500/30 flex items-center gap-1 text-xs font-semibold"
@@ -314,9 +347,9 @@ export default function CompanyUserTable({ initialUsers }: { initialUsers: UserI
                         onClick={() => handleDeleteUser(user.id, user.name)}
                         disabled={isProcessing}
                         className="p-1.5 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white rounded-xl transition-all border border-red-500/30 min-w-[34px] min-h-[34px] flex items-center justify-center disabled:opacity-50"
-                        title="Excluir técnico"
+                        title="Bloquear acesso (mantém os registros)"
                       >
-                        {isProcessing ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                        {isProcessing ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}
                       </button>
                     </div>
                   </div>
@@ -382,6 +415,17 @@ export default function CompanyUserTable({ initialUsers }: { initialUsers: UserI
                       </td>
                       <td className="py-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <select
+                            aria-label="Papel na empresa"
+                            value={user.role === 'COMPANY_ADMIN' ? 'COMPANY_ADMIN' : 'ORGANIZER'}
+                            disabled={isProcessing || user.role === 'SUPER_ADMIN'}
+                            onChange={(e) => handleChangeRole(user.id, e.target.value)}
+                            className="bg-slate-950 border border-slate-800 rounded-xl px-2 py-1.5 text-[11px] font-semibold text-slate-200"
+                            title="Papel no DDS-ON"
+                          >
+                            <option value="ORGANIZER">Organizador</option>
+                            <option value="COMPANY_ADMIN">Admin. da empresa</option>
+                          </select>
                           <button
                             onClick={() => handleOpenEditModal(user)}
                             className="px-2.5 py-1.5 bg-blue-500/10 hover:bg-blue-600 text-blue-400 hover:text-white rounded-xl transition-all border border-blue-500/30 shadow-sm flex items-center gap-1 text-xs font-semibold"
@@ -394,12 +438,12 @@ export default function CompanyUserTable({ initialUsers }: { initialUsers: UserI
                             onClick={() => handleDeleteUser(user.id, user.name)}
                             disabled={isProcessing}
                             className="p-2 bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white rounded-xl transition-all border border-red-500/30 shadow-sm disabled:opacity-50 min-h-[34px] min-w-[34px] flex items-center justify-center"
-                            title="Excluir técnico permanentemente"
+                            title="Bloquear acesso (mantém os registros)"
                           >
                             {isProcessing ? (
                               <Loader2 size={13} className="animate-spin" />
                             ) : (
-                              <Trash2 size={13} />
+                              <Ban size={13} />
                             )}
                           </button>
                         </div>

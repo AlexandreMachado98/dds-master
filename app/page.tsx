@@ -1,40 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import {
-  Building2,
-  Users,
-  Video,
-  BarChart3,
-  RefreshCw,
-  PlusCircle,
-  CheckCircle2,
-  AlertTriangle,
-  Check,
-  X,
-  ExternalLink,
-  LogOut,
-  Info,
-  Loader2,
-  KeyRound,
-  Trash2,
-  UserX,
-  Link2,
-  Menu,
-  Settings,
-  Database,
-  ShieldCheck,
-  Search,
-  FileDown,
-  WifiOff,
-  ArrowRight,
-  HelpCircle,
-  History,
-  Activity,
-  FileCheck2,
-  Lock,
-  Unlock
-} from 'lucide-react';
+import { Building2, Users, Video, BarChart3, RefreshCw, PlusCircle, CheckCircle2, AlertTriangle, Check, X, ExternalLink, LogOut, Info, Loader2, KeyRound, Trash2, UserX, Link2, Menu, Settings, Database, ShieldCheck, Search, FileDown, WifiOff, ArrowRight, HelpCircle, History, Activity, FileCheck2, Lock, Unlock, Ban } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -194,16 +161,11 @@ export default function MasterDashboard() {
     };
   }, []);
 
-  // Verificação de Sessão Mestre
+  // Verificação de Sessão Mestre: quem decide é o servidor (cookie assinado).
   useEffect(() => {
-    try {
-      const sessionStr = localStorage.getItem('dds_master_session');
-      if (!sessionStr) {
-        router.push('/login');
-      }
-    } catch {
-      router.push('/login');
-    }
+    fetch('/api/master/auth', { cache: 'no-store' })
+      .then(res => { if (res.status === 401) { try { localStorage.removeItem('dds_master_session'); } catch {} router.push('/login'); } })
+      .catch(() => {});
   }, [router]);
 
   // Carregamento de dados com AbortController
@@ -221,6 +183,11 @@ export default function MasterDashboard() {
         signal: abortControllerRef.current.signal
       });
 
+      if (res.status === 401) {
+        try { localStorage.removeItem('dds_master_session'); } catch {}
+        router.push('/login');
+        return;
+      }
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.error || `Erro do servidor (${res.status})`);
@@ -247,7 +214,7 @@ export default function MasterDashboard() {
       setInitialLoading(false);
       setIsRefreshing(false);
     }
-  }, [initialLoading]);
+  }, [initialLoading, router]);
 
   // Polling inteligente a cada 15s
   useEffect(() => {
@@ -285,7 +252,8 @@ export default function MasterDashboard() {
     showToast('Dados consolidados atualizados com sucesso.', 'success');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try { await fetch('/api/master/auth', { method: 'DELETE' }); } catch {}
     localStorage.removeItem('dds_master_session');
     router.push('/login');
   };
@@ -406,8 +374,8 @@ export default function MasterDashboard() {
     if (processingId === userId) return;
 
     setConfirmDialog({
-      title: 'Excluir Usuário Permanentemente',
-      message: `Tem certeza que deseja excluir o usuário "${userName}"? Todos os seus registros associados serão removidos definitivamente.`,
+      title: 'Bloquear acesso do usuário',
+      message: `Bloquear o acesso de "${userName}"? Ele não consegue mais entrar no DDS-ON. Os DDS, assinaturas e atas que ele registrou continuam guardados.`,
       onConfirm: async () => {
         setProcessingId(userId);
         try {
@@ -418,10 +386,10 @@ export default function MasterDashboard() {
           });
           const data = await res.json();
           if (data.success) {
-            showToast('Usuário excluído definitivamente.', 'success');
+            showToast('Acesso bloqueado. Registros preservados.', 'success');
             await loadDashboardData(false);
           } else {
-            showToast(data.error || 'Erro ao excluir usuário.', 'error');
+            showToast(data.error || 'Erro ao bloquear usuário.', 'error');
           }
         } catch {
           showToast('Erro de conexão com o servidor.', 'error');
@@ -431,6 +399,34 @@ export default function MasterDashboard() {
         setConfirmDialog(null);
       }
     });
+  };
+
+  // 4.1 Trocar a palavra-chave da empresa (cadastro de novos técnicos no DDS-ON)
+  const handleChangeCompanyKey = async (companyId: string, companyName: string, currentKey: string | null) => {
+    const typed = window.prompt(
+      `Nova palavra-chave de "${companyName}" (6 a 40 letras/números).\nQuem se cadastrar no DDS-ON com ela entra aprovado. Deixe em branco para remover: aí todo cadastro novo vai para a fila de aprovação.`,
+      currentKey || ''
+    );
+    if (typed === null) return;
+    setProcessingId(companyId);
+    try {
+      const res = await fetch('/api/master', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_company_key', companyId, secretKey: typed.trim().toUpperCase() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || 'Palavra-chave atualizada.', 'success');
+        await loadDashboardData(false);
+      } else {
+        showToast(data.error || 'Erro ao trocar a palavra-chave.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão com o servidor.', 'error');
+    } finally {
+      setProcessingId(null);
+    }
   };
 
   // 5. Cadastrar Nova Empresa
@@ -798,6 +794,14 @@ export default function MasterDashboard() {
                             <span className="font-mono text-green-400 font-bold">
                               Chave: {comp.secretKey || 'SEM CHAVE'}
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => handleChangeCompanyKey(comp.id, comp.name, comp.secretKey)}
+                              disabled={processingId === comp.id}
+                              className="px-2 py-0.5 rounded-lg border border-slate-700 text-[11px] font-bold text-slate-300 hover:bg-slate-800"
+                            >
+                              Trocar chave
+                            </button>
                           </div>
 
                           <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-1">
@@ -942,9 +946,9 @@ export default function MasterDashboard() {
                                 onClick={() => handleDeleteUser(user.id, user.name)}
                                 disabled={isProcessing}
                                 className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-colors"
-                                title="Excluir cadastro"
+                                title="Bloquear acesso (mantém os registros)"
                               >
-                                <Trash2 size={15} />
+                                <Ban size={15} />
                               </button>
 
                               <button
@@ -1026,8 +1030,9 @@ export default function MasterDashboard() {
                             onClick={() => handleDeleteUser(user.id, user.name)}
                             disabled={processingId === user.id}
                             className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-colors"
+                            title="Bloquear acesso (mantém os registros)"
                           >
-                            <Trash2 size={15} />
+                            <Ban size={15} />
                           </button>
                         </div>
                       </div>

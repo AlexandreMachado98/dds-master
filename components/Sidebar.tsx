@@ -157,7 +157,7 @@ export default function Sidebar({
           <div className="flex items-center justify-between">
             <div className="min-w-0 pr-2">
               <p className="text-xs font-bold text-white truncate">Alexandre Machado</p>
-              <p className="text-[10px] text-slate-500 truncate">alexandre@amtst.com.br</p>
+              <p className="text-[10px] text-slate-500 truncate">Administrador master</p>
             </div>
             <button
               onClick={onLogout}
