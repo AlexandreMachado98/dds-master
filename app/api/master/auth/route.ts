@@ -47,8 +47,16 @@ function readConfig() {
   const email = (process.env.MASTER_EMAIL || '').toLowerCase().trim();
   const password = (process.env.MASTER_PASSWORD || '').trim();
   const key = (process.env.MASTER_KEY || '').trim().toUpperCase();
-  const ready = Boolean(email && password.length >= 12 && key && getMasterSessionSecret());
-  return { email, password, key, ready };
+  const rawSecret = (process.env.MASTER_SESSION_SECRET || '').trim();
+  // Lista o que falta ou está fora da regra, só pelos nomes (nunca mostra valores).
+  const problems: string[] = [];
+  if (!email) problems.push('MASTER_EMAIL não encontrada');
+  if (!password) problems.push('MASTER_PASSWORD não encontrada');
+  else if (password.length < 12) problems.push(`MASTER_PASSWORD tem ${password.length} caracteres (mínimo 12)`);
+  if (!key) problems.push('MASTER_KEY não encontrada');
+  if (!rawSecret) problems.push('MASTER_SESSION_SECRET não encontrada');
+  else if (!getMasterSessionSecret()) problems.push(`MASTER_SESSION_SECRET tem ${rawSecret.length} caracteres (mínimo 32)`);
+  return { email, password, key, ready: problems.length === 0, problems };
 }
 
 function readCookie(req: Request, name: string): string | null {
@@ -60,9 +68,13 @@ function readCookie(req: Request, name: string): string | null {
 export async function POST(req: Request) {
   const config = readConfig();
   if (!config.ready) {
-    console.error('[ADMIN_AUTH] Login mestre desativado: variáveis MASTER_EMAIL, MASTER_PASSWORD (12+ caracteres), MASTER_KEY e MASTER_SESSION_SECRET (32+ caracteres) precisam estar configuradas.');
+    console.error(`[ADMIN_AUTH] Login mestre desativado: ${config.problems.join('; ')}.`);
     return NextResponse.json(
-      { success: false, error: 'O login do DDS Master não está configurado no servidor. Defina as variáveis de acesso na Vercel.' },
+      {
+        success: false,
+        error: `O login do DDS Master não está configurado no servidor: ${config.problems.join('; ')}. ` +
+          'Ajuste em Vercel › projeto dds-master › Settings › Environment Variables, marcando o ambiente Production, e faça Redeploy.'
+      },
       { status: 503 }
     );
   }
