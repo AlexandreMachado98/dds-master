@@ -230,10 +230,63 @@ export async function POST(req: Request) {
 // -----------------------------------------------------------------------------
 // PATCH: Ações Administrativas (Aprovação, Bloqueio, Vínculo de Empresa, Status)
 // -----------------------------------------------------------------------------
+/**
+ * "Excluir" agora BLOQUEIA o acesso e mantém os registros (DDS, assinaturas, atas,
+ * questionários). Antes a exclusão apagava os DDS e as assinaturas do usuário,
+ * o que destrói evidências de SST e falha com as tabelas novas do DDS-ON.
+ */
+async function blockUserKeepingData(userId: string) {
+  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true, status: true } });
+  if (!targetUser) return NextResponse.json({ success: false, error: 'Usuário não encontrado.' }, { status: 404 });
+  if (targetUser.status !== 'BLOCKED') {
+    await prisma.user.update({ where: { id: userId }, data: { status: 'BLOCKED' } });
+  }
+  logAdminAudit('USER_BLOCKED_INSTEAD_OF_DELETED', { userId: targetUser.id, userName: targetUser.name, userEmail: targetUser.email, previousStatus: targetUser.status });
+  return NextResponse.json({
+    success: true,
+    message: 'Acesso do usuário bloqueado. Os registros (DDS, assinaturas e atas) foram preservados.'
+  });
+}
+
 export async function PATCH(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const { action, companyId, newStatus, userId, targetCompanyId } = body;
+
+    // ALTERAR A PALAVRA-CHAVE DA EMPRESA (cadastro de novos técnicos no DDS-ON)
+    if (action === 'update_company_key') {
+      const cleanKey = String(body.secretKey || '').trim().toUpperCase();
+      if (!companyId) return NextResponse.json({ success: false, error: 'Empresa não informada.' }, { status: 400 });
+      if (cleanKey && !/^[A-Z0-9_-]{6,40}$/.test(cleanKey)) {
+        return NextResponse.json({ success: false, error: 'A palavra-chave deve ter de 6 a 40 caracteres: letras, números, hífen ou sublinhado.' }, { status: 400 });
+      }
+      const company = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true, name: true } });
+      if (!company) return NextResponse.json({ success: false, error: 'Empresa não encontrada.' }, { status: 404 });
+      if (cleanKey) {
+        const clash = await prisma.company.findFirst({ where: { secretKey: cleanKey, NOT: { id: companyId } }, select: { id: true } });
+        if (clash) return NextResponse.json({ success: false, error: 'Esta palavra-chave já é usada por outra empresa.' }, { status: 409 });
+      }
+      await prisma.company.update({ where: { id: companyId }, data: { secretKey: cleanKey || null } });
+      logAdminAudit('COMPANY_KEY_UPDATED', { companyId, companyName: company.name, removed: !cleanKey });
+      return NextResponse.json({
+        success: true,
+        message: cleanKey ? 'Palavra-chave atualizada. Novos cadastros com ela entram aprovados.' : 'Palavra-chave removida. Todo cadastro novo vai para a fila de aprovação.'
+      });
+    }
+
+    // DEFINIR O PAPEL DO USUÁRIO NA EMPRESA
+    if (action === 'update_user_role') {
+      const role = String(body.role || '');
+      if (!userId || !['COMPANY_ADMIN', 'ORGANIZER'].includes(role)) {
+        return NextResponse.json({ success: false, error: 'Informe o usuário e o papel (administrador da empresa ou organizador).' }, { status: 400 });
+      }
+      const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, role: true } });
+      if (!target) return NextResponse.json({ success: false, error: 'Usuário não encontrado.' }, { status: 404 });
+      if (target.role === 'SUPER_ADMIN') return NextResponse.json({ success: false, error: 'Este usuário não pode ser alterado aqui.' }, { status: 403 });
+      await prisma.user.update({ where: { id: userId }, data: { role: role as 'COMPANY_ADMIN' | 'ORGANIZER' } });
+      logAdminAudit('USER_ROLE_UPDATED', { userId, userName: target.name, previousRole: target.role, newRole: role });
+      return NextResponse.json({ success: true, message: role === 'COMPANY_ADMIN' ? 'Usuário agora é administrador da empresa.' : 'Usuário agora é organizador.' });
+    }
 
     // 1. ALTERAR STATUS DE EMPRESA (KILL-SWITCH)
     if (action === 'update_company_status') {
@@ -413,57 +466,12 @@ export async function PATCH(req: Request) {
       });
     }
 
-    // 4. EXCLUSÃO TOTAL EM CASCATA VIA PATCH
+    // 4. "EXCLUIR" USUÁRIO → BLOQUEIA E PRESERVA OS REGISTROS
     if (action === 'delete_user') {
       if (!userId) {
-        return NextResponse.json(
-          { success: false, error: 'ID do usuário não informado.' },
-          { status: 400 }
-        );
+        return NextResponse.json({ success: false, error: 'ID do usuário não informado.' }, { status: 400 });
       }
-
-      const targetUser = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, name: true, email: true }
-      });
-
-      if (!targetUser) {
-        return NextResponse.json(
-          { success: true, message: 'Usuário já excluído ou inexistente.' }
-        );
-      }
-
-      await prisma.$transaction(async (tx) => {
-        const userMeetings = await tx.meeting.findMany({
-          where: { organizerId: userId },
-          select: { id: true }
-        });
-        const meetingIds = userMeetings.map((m) => m.id);
-
-        if (meetingIds.length > 0) {
-          await tx.attendance.deleteMany({
-            where: { meetingId: { in: meetingIds } }
-          });
-          await tx.meeting.deleteMany({
-            where: { id: { in: meetingIds } }
-          });
-        }
-
-        await tx.user.delete({
-          where: { id: userId }
-        });
-      });
-
-      logAdminAudit('USER_DELETED', {
-        userId: targetUser.id,
-        userName: targetUser.name,
-        userEmail: targetUser.email
-      });
-
-      return NextResponse.json({
-        success: true,
-        message: 'Usuário e todos os seus registros foram excluídos definitivamente.'
-      });
+      return blockUserKeepingData(userId);
     }
 
     // 5. ATUALIZAR/CORRIGIR NOME DO COLABORADOR OU USUÁRIO
@@ -569,61 +577,12 @@ export async function DELETE(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const { userId } = body;
-
     if (!userId) {
-      return NextResponse.json(
-        { success: false, error: 'ID do usuário não informado.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'ID do usuário não informado.' }, { status: 400 });
     }
-
-    const targetUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, name: true, email: true }
-    });
-
-    if (!targetUser) {
-      return NextResponse.json(
-        { success: true, message: 'Usuário já não existe no banco de dados.' }
-      );
-    }
-
-    await prisma.$transaction(async (tx) => {
-      const userMeetings = await tx.meeting.findMany({
-        where: { organizerId: userId },
-        select: { id: true }
-      });
-      const meetingIds = userMeetings.map((m) => m.id);
-
-      if (meetingIds.length > 0) {
-        await tx.attendance.deleteMany({
-          where: { meetingId: { in: meetingIds } }
-        });
-        await tx.meeting.deleteMany({
-          where: { id: { in: meetingIds } }
-        });
-      }
-
-      await tx.user.delete({
-        where: { id: userId }
-      });
-    });
-
-    logAdminAudit('USER_DELETED', {
-      userId: targetUser.id,
-      userName: targetUser.name,
-      userEmail: targetUser.email
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: 'Usuário e todos os seus dados foram excluídos definitivamente.'
-    });
+    return blockUserKeepingData(userId);
   } catch (error: any) {
     console.error('[API /api/master DELETE Error]:', error);
-    return NextResponse.json(
-      { success: false, error: error?.message || 'Erro ao excluir usuário.' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Erro ao bloquear usuário.' }, { status: 500 });
   }
 }
