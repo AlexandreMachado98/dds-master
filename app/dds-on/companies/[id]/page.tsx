@@ -113,7 +113,7 @@ export default async function CompanyDetailPage({ params }: PageProps) {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-start sm:items-center gap-3 sm:gap-4">
               <Link
-                href="/"
+                href="/dds-on"
                 className="p-2.5 sm:p-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-2xl border border-slate-700 transition-colors flex items-center justify-center group shrink-0 min-w-[44px] min-h-[44px]"
                 title="Voltar ao Painel Master"
               >
