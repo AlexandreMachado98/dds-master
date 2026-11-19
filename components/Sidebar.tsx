@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import {
   LayoutDashboard,
   Building2,
@@ -15,7 +16,8 @@ import {
   Settings,
   LogOut,
   X,
-  ShieldCheck
+  ShieldCheck,
+  ArrowLeftRight
 } from 'lucide-react';
 
 export type NavTab =
@@ -93,7 +95,7 @@ export default function Sidebar({
               </div>
               <div>
                 <span className="text-xs uppercase tracking-widest font-black text-green-400 block leading-tight">
-                  SuperAdmin
+                  DDS-ON
                 </span>
                 <span className="text-base font-black text-white tracking-tight">
                   DDS MASTER
@@ -110,8 +112,19 @@ export default function Sidebar({
             </button>
           </div>
 
+          {/* Volta para a escolha de produto (DDS-ON ou CHECK-ON) */}
+          <div className="px-3 pt-3">
+            <Link
+              href="/"
+              data-testid="switch-product"
+              className="flex w-full items-center gap-2 rounded-xl border border-slate-800 px-3.5 py-2.5 text-xs font-semibold text-slate-400 transition-colors hover:border-slate-700 hover:bg-slate-900 hover:text-white"
+            >
+              <ArrowLeftRight size={16} /> Trocar de produto
+            </Link>
+          </div>
+
           {/* Lista de Navegação */}
-          <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-170px)]">
+          <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-230px)]">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
