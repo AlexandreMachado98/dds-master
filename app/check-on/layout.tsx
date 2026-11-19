@@ -3,7 +3,7 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ArrowLeftRight, Building2, CalendarClock, ClipboardCheck, History, KeyRound, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
+import { Archive, ArrowLeftRight, Building2, CalendarClock, ClipboardCheck, History, KeyRound, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
 
 const MENU = [
   { href: '/check-on', label: 'Painel', icon: LayoutDashboard },
@@ -11,6 +11,7 @@ const MENU = [
   { href: '/check-on/vencimentos', label: 'Vencimentos', icon: CalendarClock },
   { href: '/check-on/codigos', label: 'Códigos de acesso', icon: KeyRound },
   { href: '/check-on/historico', label: 'Histórico', icon: History },
+  { href: '/check-on/arquivadas', label: 'Arquivadas', icon: Archive },
 ];
 
 /** Área do CHECK-ON: menu próprio (azul), separado do DDS-ON. */

@@ -16,6 +16,7 @@ import HistoryModule from '@/components/HistoryModule';
 import MonitoringModule from '@/components/MonitoringModule';
 import ReportsModule from '@/components/ReportsModule';
 import { generateConsolidatedDdsPdf } from '@/lib/pdfGenerator';
+import { ArchiveDdsCompanyButton, DdsArchivedCompanies } from '@/components/DdsArchivedCompanies';
 
 interface MetricData {
   totalCompanies: number;
@@ -250,6 +251,14 @@ export default function MasterDashboard() {
   const handleManualRefresh = async () => {
     await loadDashboardData(true);
     showToast('Dados consolidados atualizados com sucesso.', 'success');
+  };
+
+  // "Excluir" (arquivar), restaurar e excluir definitivamente: recarrega a lista e avisa.
+  const [archiveRefresh, setArchiveRefresh] = useState(0);
+  const handleArchiveChange = (message: string) => {
+    setArchiveRefresh((n) => n + 1);
+    loadDashboardData();
+    showToast(message, 'success');
   };
 
   const handleLogout = async () => {
@@ -834,12 +843,16 @@ export default function MasterDashboard() {
                             <span>Detalhes</span>
                             <ArrowRight size={13} />
                           </Link>
+
+                          <ArchiveDdsCompanyButton id={comp.id} name={comp.name} onDone={handleArchiveChange} />
                         </div>
                       </div>
                     );
                   })}
                 </div>
               )}
+
+              <DdsArchivedCompanies refreshKey={archiveRefresh} onChanged={handleArchiveChange} />
             </div>
           )}
 

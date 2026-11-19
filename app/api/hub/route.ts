@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { checkonConfig, checkonFetch, CheckonError } from '@/lib/checkon';
+import { archivedCompanyIds } from '@/lib/companyArchive';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -15,12 +16,13 @@ type CheckonSummary = {
 
 /** Números de cada produto para a tela inicial (escolha entre DDS-ON e CHECK-ON). */
 export async function GET() {
-  const ddsOn = await Promise.all([
-    prisma.company.count(),
-    prisma.company.count({ where: { status: 'ACTIVE' } }),
+  const ddsOn = await archivedCompanyIds()
+    .then((archived) => Promise.all([
+    prisma.company.count({ where: { id: { notIn: archived } } }),
+    prisma.company.count({ where: { status: 'ACTIVE', id: { notIn: archived } } }),
     prisma.user.count({ where: { status: 'PENDING_APPROVAL' } }),
     prisma.meeting.count({ where: { status: 'LIVE' } }),
-  ])
+  ]))
     .then(([companies, activeCompanies, pendingApprovals, liveMeetings]) => ({ ok: true, companies, activeCompanies, pendingApprovals, liveMeetings }))
     .catch((error) => {
       console.error('[API /api/hub] DDS-ON:', error);
