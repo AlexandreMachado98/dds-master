@@ -79,6 +79,11 @@ export default function CheckOnDashboard() {
             <Metric icon={<Truck size={18} />} label="Veículos cadastrados" value={summary.vehicles} />
             <Metric icon={<ClipboardList size={18} />} label="Inspeções nos últimos 30 dias" value={summary.inspections30d} />
           </div>
+          {summary.archived > 0 && (
+            <p className="text-xs text-slate-500">
+              {summary.archived} cliente(s) arquivado(s), fora destes números. <Link href="/check-on/arquivadas" className="font-semibold text-sky-400 hover:text-sky-300">Ver arquivados</Link>
+            </p>
+          )}
 
           <Panel title={`Vencem nos próximos 7 dias (${summary.expiringIn7Days})`}>
             {summary.expiringSoon.length === 0 ? (

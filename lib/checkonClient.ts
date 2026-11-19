@@ -33,6 +33,7 @@ export interface Company {
   subscriptionEndsAt: string | null;
   graceDays: number;
   notes: string | null;
+  archivedAt: string | null;
   createdAt: string;
   subscription: Subscription;
   usage: Usage;
@@ -55,6 +56,7 @@ export interface CompanyDetail extends Company {
 export interface Summary {
   totalCompanies: number;
   byState: Record<SubscriptionState, number>;
+  archived: number;
   expiringIn7Days: number;
   expiringSoon: Array<{ id: string; name: string; code: string | null; subscription: Subscription }>;
   inspections30d: number;
@@ -109,6 +111,9 @@ export const ACTION_LABEL: Record<string, string> = {
   COMPANY_REACTIVATED: 'Cliente reativado',
   SUBSCRIPTION_RENEWED: 'Assinatura renovada',
   ADMIN_PASSWORD_RESET: 'Nova senha do administrador',
+  COMPANY_ARCHIVED: 'Cliente excluído (arquivado)',
+  COMPANY_RESTORED: 'Cliente restaurado',
+  COMPANY_DELETED: 'Cliente excluído definitivamente',
 };
 
 /** Data no calendário de Brasília. */

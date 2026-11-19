@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { ArrowLeft, Ban, CalendarPlus, KeyRound, Pencil, RotateCcw, ShieldCheck } from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import { Archive, ArrowLeft, Ban, CalendarPlus, KeyRound, Pencil, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   ACTION_LABEL,
   checkon,
@@ -18,8 +18,9 @@ import {
 } from '@/lib/checkonClient';
 import { Button, CredentialsBox, ErrorBox, Field, inputClass, Loading, Modal, PageTitle, Panel, StateBadge } from '@/components/checkon/ui';
 import { CodeDialog, useSubmit, type DialogProps } from '@/components/checkon/dialogs';
+import { ArchiveDialog, countLines, PermanentDeleteDialog } from '@/components/archive/ArchiveDialogs';
 
-type Dialog = null | 'edit' | 'renew' | 'code' | 'suspend' | 'reactivate' | 'password';
+type Dialog = null | 'edit' | 'renew' | 'code' | 'suspend' | 'reactivate' | 'password' | 'archive';
 
 /** Ficha do cliente: assinatura, código do app, administradores, uso e histórico. */
 export default function ClientPage() {
@@ -28,6 +29,8 @@ export default function ClientPage() {
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [deleteLines, setDeleteLines] = useState<string[] | null>(null);
+  const router = useRouter();
 
   const load = useCallback(async () => {
     try {
@@ -59,6 +62,33 @@ export default function ClientPage() {
   }
 
   const s = company.subscription;
+  const archived = !!company.archivedAt;
+
+  const restore = async () => {
+    try {
+      done(await checkon<CompanyDetail>(`companies/${company.id}/restore`, { method: 'POST' }), 'Cliente restaurado. O acesso voltou como estava antes.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao restaurar.');
+    }
+  };
+  const askDelete = async () => {
+    try {
+      const { counts: n } = await checkon<{ counts: Record<string, number> }>(`companies/${company.id}/deletion-preview`);
+      setDeleteLines(
+        countLines([
+          [n.users, 'login (portal/app)', 'logins (portal/app)'],
+          [n.employees, 'colaborador', 'colaboradores'],
+          [n.vehicles, 'veículo', 'veículos'],
+          [n.checklists, 'inspeção', 'inspeções'],
+          [n.ncs, 'não conformidade', 'não conformidades'],
+          [n.photos, 'foto de inspeção', 'fotos de inspeção'],
+        ]),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao consultar.');
+    }
+  };
+
   return (
     <>
       <BackLink />
@@ -66,20 +96,34 @@ export default function ClientPage() {
         title={company.name}
         subtitle={`CNPJ ${formatCnpj(company.cnpj)} · cliente desde ${formatDate(company.createdAt)}`}
         actions={
-          <>
-            <Button variant="outline" onClick={() => setDialog('edit')}><Pencil size={16} /> Editar</Button>
-            {company.isActive ? (
-              <Button variant="danger" onClick={() => setDialog('suspend')} testId="suspend"><Ban size={16} /> Suspender</Button>
-            ) : (
-              <Button variant="success" onClick={() => setDialog('reactivate')} testId="reactivate"><RotateCcw size={16} /> Reativar</Button>
-            )}
-          </>
+          archived ? (
+            <>
+              <Button variant="success" onClick={restore} testId="restore"><RotateCcw size={16} /> Restaurar</Button>
+              <Button variant="danger" onClick={askDelete} testId="delete-permanently"><Trash2 size={16} /> Excluir definitivamente</Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setDialog('edit')}><Pencil size={16} /> Editar</Button>
+              {company.isActive ? (
+                <Button variant="danger" onClick={() => setDialog('suspend')} testId="suspend"><Ban size={16} /> Suspender</Button>
+              ) : (
+                <Button variant="success" onClick={() => setDialog('reactivate')} testId="reactivate"><RotateCcw size={16} /> Reativar</Button>
+              )}
+              <Button variant="outline" onClick={() => setDialog('archive')} testId="archive"><Archive size={16} /> Excluir</Button>
+            </>
+          )
         }
       />
       {notice && <p role="status" className="mb-4 rounded-xl border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-300">{notice}</p>}
       <ErrorBox message={error} />
+      {archived && (
+        <p data-testid="archived-banner" className="mb-4 rounded-xl border border-slate-600 bg-slate-800/60 p-3 text-sm text-slate-200">
+          <strong>Cliente arquivado em {formatDateTime(company.archivedAt)}.</strong> Ninguém da empresa entra no portal nem no aplicativo, e os dados continuam guardados.
+          Restaure para voltar a usar, ou exclua definitivamente para apagar tudo.
+        </p>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className={`grid gap-6 lg:grid-cols-3 ${archived ? 'pointer-events-none opacity-60' : ''}`}>
         <Panel title="Assinatura" className="lg:col-span-2">
           <div className="flex flex-wrap items-center gap-3">
             <StateBadge state={s.state} />
@@ -162,6 +206,27 @@ export default function ClientPage() {
         <StatusDialog company={company} suspend={dialog === 'suspend'} onClose={() => setDialog(null)} onDone={done} />
       )}
       {dialog === 'password' && <PasswordDialog company={company} onClose={() => { setDialog(null); load(); }} />}
+      {dialog === 'archive' && (
+        <ArchiveDialog
+          name={company.name}
+          product="CHECK-ON"
+          onClose={() => setDialog(null)}
+          onConfirm={async () => {
+            done(await checkon<CompanyDetail>(`companies/${company.id}/archive`, { method: 'POST' }), 'Cliente excluído (arquivado). Ninguém da empresa entra mais.');
+          }}
+        />
+      )}
+      {deleteLines && (
+        <PermanentDeleteDialog
+          name={company.name}
+          lines={deleteLines}
+          onClose={() => setDeleteLines(null)}
+          onConfirm={async (confirmName) => {
+            await checkon(`companies/${company.id}`, { method: 'DELETE', body: { confirmName } });
+            router.push(`/check-on/arquivadas?excluida=${encodeURIComponent(company.name)}`);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -16,10 +16,13 @@ const RULES: Array<[string, RegExp]> = [
   ['POST', /^companies$/],
   ['GET', new RegExp(`^companies/${ID}$`)],
   ['PATCH', new RegExp(`^companies/${ID}$`)],
-  ['POST', new RegExp(`^companies/${ID}/(renew|admin-password)$`)],
+  ['POST', new RegExp(`^companies/${ID}/(renew|admin-password|archive|restore)$`)],
+  ['GET', new RegExp(`^companies/${ID}/deletion-preview$`)],
+  // Exclusão definitiva: o CHECK-ON só aceita empresa arquivada e com o nome digitado.
+  ['DELETE', new RegExp(`^companies/${ID}$`)],
   ['GET', /^history$/],
 ];
-const ALLOWED_QUERY = ['tenantId', 'limit'];
+const ALLOWED_QUERY = ['tenantId', 'limit', 'archived'];
 
 function readCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || '';
@@ -61,5 +64,8 @@ export async function POST(req: Request, { params }: { params: { path: string[] 
   return handle(req, params);
 }
 export async function PATCH(req: Request, { params }: { params: { path: string[] } }) {
+  return handle(req, params);
+}
+export async function DELETE(req: Request, { params }: { params: { path: string[] } }) {
   return handle(req, params);
 }

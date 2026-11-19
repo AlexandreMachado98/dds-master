@@ -16,6 +16,14 @@ function describe(entry: HistoryEntry): string {
       return `De ${date(d.from)} para ${date(d.to)} (${d.billingCycle})`;
     case 'ADMIN_PASSWORD_RESET':
       return `Administrador ${d.adminEmail}`;
+    case 'COMPANY_ARCHIVED':
+      return `Código ${d.code ?? '—'} · acesso bloqueado, dados guardados`;
+    case 'COMPANY_RESTORED':
+      return d.isActive === false ? 'Voltou suspensa (como estava antes)' : 'Voltou ativa';
+    case 'COMPANY_DELETED': {
+      const c = (d.counts ?? {}) as Record<string, number>;
+      return `Apagados: ${c.users ?? 0} usuário(s), ${c.vehicles ?? 0} veículo(s), ${c.checklists ?? 0} inspeção(ões), ${c.ncs ?? 0} NC(s), ${c.photos ?? 0} foto(s)`;
+    }
     default: {
       const labels: Record<string, string> = {
         name: 'nome', cnpj: 'CNPJ', code: 'código', billingCycle: 'tipo', subscriptionEndsAt: 'vencimento', graceDays: 'carência', notes: 'anotações', isActive: 'ativo',
@@ -65,7 +73,12 @@ export default function HistoryPage() {
                 <tr key={h.id}>
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{formatDateTime(h.createdAt)}</td>
                   <td className="px-4 py-3">
-                    {h.tenant ? <Link href={`/check-on/clientes/${h.tenant.id}`} className="font-semibold text-white hover:text-sky-300">{h.tenant.name}</Link> : '—'}
+                    {h.tenant ? (
+                      <Link href={`/check-on/clientes/${h.tenant.id}`} className="font-semibold text-white hover:text-sky-300">{h.tenant.name}</Link>
+                    ) : (
+                      // Cliente excluído definitivamente: o nome fica guardado nos detalhes da ação.
+                      <span className="text-slate-400">{((h.details ?? {}) as { name?: string }).name ?? '—'}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 font-semibold text-slate-200">{ACTION_LABEL[h.action] ?? h.action}</td>
                   <td className="px-4 py-3 text-xs text-slate-400">{describe(h)}</td>

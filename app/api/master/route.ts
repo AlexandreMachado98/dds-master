@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { archivedCompanyIds } from '@/lib/companyArchive';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -19,6 +20,9 @@ function logAdminAudit(action: string, details: Record<string, any>) {
 // -----------------------------------------------------------------------------
 export async function GET(req: Request) {
   try {
+    // Empresas arquivadas ("Excluir") não aparecem nas listas nem nos totais de empresas.
+    const archived = await archivedCompanyIds();
+    const notArchived = { id: { notIn: archived } };
     const [
       totalCompanies,
       activeCompanies,
@@ -38,9 +42,9 @@ export async function GET(req: Request) {
       recentMeetings,
       recentAttempts
     ] = await Promise.all([
-      prisma.company.count(),
-      prisma.company.count({ where: { status: 'ACTIVE' } }),
-      prisma.company.count({ where: { status: 'SUSPENDED' } }),
+      prisma.company.count({ where: notArchived }),
+      prisma.company.count({ where: { status: 'ACTIVE', ...notArchived } }),
+      prisma.company.count({ where: { status: 'SUSPENDED', ...notArchived } }),
       prisma.user.count(),
       prisma.meeting.count(),
       prisma.meeting.count({ where: { status: 'LIVE' } }),
@@ -53,6 +57,7 @@ export async function GET(req: Request) {
       prisma.quizAttempt.count(),
       prisma.quizAttempt.count({ where: { passed: true } }),
       prisma.company.findMany({
+        where: notArchived,
         include: {
           _count: { select: { meetings: true, users: true } },
           meetings: {
