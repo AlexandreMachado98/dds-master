@@ -11,7 +11,10 @@ import {
   RefreshCw,
   Loader2,
   FileText,
-  FileDown
+  FileDown,
+  Square,
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
 import { generateDdsPdf } from '@/lib/pdfGenerator';
 
@@ -30,6 +33,22 @@ interface MeetingItem {
   attendeesCount: number;
   attachmentsCount: number;
   quizzesCount: number;
+  /** DDS Semanal (link fixo): encerra sozinho no fim do tema. */
+  isWeekly?: boolean;
+}
+
+/** DDS ao vivo há mais que isso é tratado como "esquecido aberto". */
+const STALE_HOURS = 12;
+
+function hoursOpen(createdAt: string): number {
+  return (Date.now() - new Date(createdAt).getTime()) / 3_600_000;
+}
+
+function openForLabel(createdAt: string): string {
+  const h = hoursOpen(createdAt);
+  if (h < 1) return 'aberto há menos de 1 h';
+  if (h < 48) return `aberto há ${Math.floor(h)} h`;
+  return `aberto há ${Math.floor(h / 24)} dias`;
 }
 
 export default function MeetingsModule() {
@@ -38,6 +57,8 @@ export default function MeetingsModule() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
+  const [ending, setEnding] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   const fetchMeetings = useCallback(async () => {
     setLoading(true);
@@ -62,6 +83,31 @@ export default function MeetingsModule() {
   useEffect(() => {
     fetchMeetings();
   }, [fetchMeetings]);
+
+  const staleMeetings = meetings.filter(
+    (m) => m.status === 'LIVE' && !m.isWeekly && hoursOpen(m.createdAt) >= STALE_HOURS
+  );
+
+  // Encerra pelo Master DDS que ficaram abertos à toa (mesmo efeito do botão do organizador).
+  const endMeetings = async (ids: string[], question: string, key: string) => {
+    if (ids.length === 0 || !window.confirm(question)) return;
+    setEnding(key);
+    setNotice(null);
+    try {
+      const res = await fetch('/api/master/dds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'end', meetingIds: ids })
+      });
+      const data = await res.json().catch(() => ({}));
+      setNotice({ ok: Boolean(data.success), text: data.message || data.error || 'Não foi possível encerrar.' });
+      await fetchMeetings();
+    } catch {
+      setNotice({ ok: false, text: 'Erro de conexão com o servidor.' });
+    } finally {
+      setEnding(null);
+    }
+  };
 
   const handleDownloadAta = (m: MeetingItem) => {
     generateDdsPdf({
@@ -140,6 +186,43 @@ export default function MeetingsModule() {
         </div>
       </div>
 
+      {notice && (
+        <div
+          role="status"
+          className={`p-3.5 rounded-2xl border text-xs font-semibold flex items-center gap-2 ${
+            notice.ok ? 'bg-green-500/10 border-green-500/30 text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-300'
+          }`}
+        >
+          {notice.ok ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+          <span>{notice.text}</span>
+        </div>
+      )}
+
+      {staleMeetings.length > 0 && (
+        <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <p className="text-xs text-amber-200 flex items-start gap-2">
+            <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-px" />
+            <span>
+              <strong>{staleMeetings.length} DDS {staleMeetings.length === 1 ? 'está aberto' : 'estão abertos'} há mais de {STALE_HOURS} h</strong>
+              {' '}e ainda {staleMeetings.length === 1 ? 'aceita' : 'aceitam'} assinaturas. Encerrar fecha a lista e gera a ata com quem já assinou.
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => endMeetings(
+              staleMeetings.map((m) => m.id),
+              `Encerrar ${staleMeetings.length} DDS abertos há mais de ${STALE_HOURS} h?\n\nA lista de presença deles fecha e a ata fica com quem já assinou. O organizador ainda pode reabrir a coleta no DDS-ON.`,
+              'bulk'
+            )}
+            disabled={ending !== null}
+            className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center justify-center gap-1.5 shrink-0 disabled:opacity-60"
+          >
+            {ending === 'bulk' ? <Loader2 size={14} className="animate-spin" /> : <Square size={13} />}
+            <span>Encerrar todos ({staleMeetings.length})</span>
+          </button>
+        </div>
+      )}
+
       {/* Listagem */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
         {loading ? (
@@ -191,6 +274,14 @@ export default function MeetingsModule() {
                     <span className="text-slate-500">
                       {new Date(m.createdAt).toLocaleDateString('pt-BR')}
                     </span>
+                    {m.status === 'LIVE' && (
+                      <>
+                        <span>•</span>
+                        <span className={hoursOpen(m.createdAt) >= STALE_HOURS && !m.isWeekly ? 'text-amber-400 font-bold' : 'text-slate-500'}>
+                          {m.isWeekly ? 'DDS Semanal (encerra sozinho)' : openForLabel(m.createdAt)}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -203,6 +294,23 @@ export default function MeetingsModule() {
                       {m.quizzesCount > 0 ? `${m.quizzesCount} avaliação vinculada` : 'Sem questionário'}
                     </span>
                   </div>
+
+                  {m.status === 'LIVE' && !m.isWeekly && (
+                    <button
+                      type="button"
+                      onClick={() => endMeetings(
+                        [m.id],
+                        `Encerrar o DDS "${m.topic}"${m.company ? ` (${m.company.name})` : ''}?\n\nA lista de presença fecha e a ata fica com os ${m.attendeesCount} que já assinaram. O organizador ainda pode reabrir a coleta no DDS-ON.`,
+                        m.id
+                      )}
+                      disabled={ending !== null}
+                      className="px-3.5 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-60"
+                      title="Encerrar este DDS"
+                    >
+                      {ending === m.id ? <Loader2 size={14} className="animate-spin" /> : <Square size={13} />}
+                      <span>Encerrar</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => handleDownloadAta(m)}
