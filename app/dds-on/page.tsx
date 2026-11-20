@@ -47,6 +47,8 @@ interface CompanyData {
   document: string | null;
   status: 'ACTIVE' | 'SUSPENDED' | 'BLOCKED' | 'PENDING_APPROVAL';
   secretKey: string | null;
+  /** Selfie na presença do DDS-ON (null = não foi possível ler). */
+  requireSelfie?: boolean | null;
   totalMeetings: number;
   totalUsers: number;
   totalAttendees: number;
@@ -438,6 +440,29 @@ export default function MasterDashboard() {
     }
   };
 
+  // Liga/desliga a selfie na presença do DDS-ON para a empresa
+  const handleToggleCompanySelfie = async (companyId: string, requireSelfie: boolean) => {
+    setProcessingId(companyId);
+    try {
+      const res = await fetch('/api/master', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_company_selfie', companyId, requireSelfie })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || 'Opção de selfie atualizada.', 'success');
+        await loadDashboardData(false);
+      } else {
+        showToast(data.error || 'Erro ao alterar a selfie.', 'error');
+      }
+    } catch {
+      showToast('Erro de conexão com o servidor.', 'error');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   // 5. Cadastrar Nova Empresa
   const handleCreateCompany = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -811,6 +836,31 @@ export default function MasterDashboard() {
                             >
                               Trocar chave
                             </button>
+                            {typeof comp.requireSelfie === 'boolean' && (
+                              <>
+                                <span>•</span>
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={comp.requireSelfie}
+                                  onClick={() => handleToggleCompanySelfie(comp.id, !comp.requireSelfie)}
+                                  disabled={processingId === comp.id}
+                                  title={comp.requireSelfie
+                                    ? 'A presença pede a foto do rosto (apagada 48 h após o DDS). Clique para desligar.'
+                                    : 'A presença é só com dados e assinatura. Clique para pedir a foto do rosto.'}
+                                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[11px] font-bold transition-colors ${
+                                    comp.requireSelfie
+                                      ? 'border-green-500/40 bg-green-500/10 text-green-300 hover:bg-green-500/20'
+                                      : 'border-slate-700 text-slate-400 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <span className={`relative inline-block h-3 w-5 rounded-full transition-colors ${comp.requireSelfie ? 'bg-green-500' : 'bg-slate-600'}`}>
+                                    <span className={`absolute top-0.5 h-2 w-2 rounded-full bg-white transition-all ${comp.requireSelfie ? 'left-2.5' : 'left-0.5'}`} />
+                                  </span>
+                                  Selfie {comp.requireSelfie ? 'ligada' : 'desligada'}
+                                </button>
+                              </>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-1">

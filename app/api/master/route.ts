@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { archivedCompanyIds } from '@/lib/companyArchive';
+import { ensureSelfieColumn, selfieByCompany, setCompanySelfie } from '@/lib/selfiePolicy';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -95,12 +96,19 @@ export async function GET(req: Request) {
       })
     ]);
 
+    // Selfie na presença do DDS-ON (coluna do DDS-ON, lida por SQL). Em falha, não derruba o painel.
+    const selfie = await selfieByCompany().catch((error) => {
+      console.error('Falha ao ler a opção de selfie das empresas:', error);
+      return new Map<string, boolean>();
+    });
+
     const formattedCompanies = companies.map((c) => ({
       id: c.id,
       name: c.name,
       document: c.document,
       status: c.status,
       secretKey: c.secretKey,
+      requireSelfie: selfie.get(c.id) ?? null,
       totalMeetings: c._count.meetings,
       totalUsers: c._count.users,
       totalAttendees: c.meetings.reduce((acc, m) => acc + m._count.attendees, 0),
@@ -202,6 +210,9 @@ export async function POST(req: Request) {
       );
     }
 
+    // Garante a coluna antes de criar: assim a empresa nova nasce com a selfie desligada.
+    await ensureSelfieColumn().catch((error) => console.error('Falha ao preparar a opção de selfie:', error));
+
     const company = await prisma.company.create({
       data: {
         name: cleanName,
@@ -276,6 +287,23 @@ export async function PATCH(req: Request) {
       return NextResponse.json({
         success: true,
         message: cleanKey ? 'Palavra-chave atualizada. Novos cadastros com ela entram aprovados.' : 'Palavra-chave removida. Todo cadastro novo vai para a fila de aprovação.'
+      });
+    }
+
+    // LIGAR/DESLIGAR A SELFIE NA PRESENÇA DO DDS-ON
+    if (action === 'update_company_selfie') {
+      if (!companyId || typeof body.requireSelfie !== 'boolean') {
+        return NextResponse.json({ success: false, error: 'Informe a empresa e se a selfie fica ligada ou desligada.' }, { status: 400 });
+      }
+      const company = await prisma.company.findUnique({ where: { id: companyId }, select: { id: true, name: true } });
+      if (!company) return NextResponse.json({ success: false, error: 'Empresa não encontrada.' }, { status: 404 });
+      await setCompanySelfie(companyId, body.requireSelfie);
+      logAdminAudit('COMPANY_SELFIE_UPDATED', { companyId, companyName: company.name, requireSelfie: body.requireSelfie });
+      return NextResponse.json({
+        success: true,
+        message: body.requireSelfie
+          ? `Selfie ligada para "${company.name}": a presença volta a pedir a foto do rosto.`
+          : `Selfie desligada para "${company.name}": a presença fica só com dados e assinatura.`
       });
     }
 
